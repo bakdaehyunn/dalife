@@ -16,11 +16,11 @@ from darchivebot.storage import ArchiveStore
 
 
 DEFAULT_BOT_COMMANDS = [
-    {"command": "chatid", "description": "현재 채팅방 ID 확인"},
+    {"command": "chatid", "description": "설정용 채팅방 ID 확인"},
 ]
 REGISTERED_CHAT_BOT_COMMANDS = [
     *DEFAULT_BOT_COMMANDS,
-    {"command": "set_chat_room", "description": "현재 채팅방을 다카이브봇 사용 방으로 등록"},
+    {"command": "set_chat_room", "description": "설정용 다카이브봇 사용 방 등록"},
 ]
 REGISTER_CHAT_ROOM_COMMAND = "/set_chat_room"
 
@@ -70,12 +70,21 @@ class TelegramApiClient:
         result = payload.get("result")
         return result if isinstance(result, dict) else {}
 
-    def send_message(self, chat_id: str, text: str) -> None:
-        self._api(
+    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
+        params = {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}
+        if reply_markup is not None:
+            params["reply_markup"] = dumps(reply_markup)
+        return self._api(
             "sendMessage",
-            {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"},
+            params,
             method="POST",
         )
+
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+        params = {"callback_query_id": callback_query_id}
+        if text:
+            params["text"] = text
+        self._api("answerCallbackQuery", params, method="POST")
 
     def get_my_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
         params: dict[str, str] = {}
@@ -170,6 +179,10 @@ class TelegramCaptureBot:
         return result if isinstance(result, list) else []
 
     def handle_update(self, update: dict[str, Any]) -> str | None:
+        callback_query = update.get("callback_query")
+        if isinstance(callback_query, dict):
+            self.handle_callback_query(callback_query)
+            return None
         message = update.get("message")
         if not isinstance(message, dict):
             return None
@@ -189,6 +202,52 @@ class TelegramCaptureBot:
         if not is_capturable_message(message):
             return None
         return self.capture_message(message)
+
+    def handle_callback_query(self, callback_query: dict[str, Any]) -> None:
+        callback_id = str(callback_query.get("id") or "")
+        data = str(callback_query.get("data") or "")
+        message = object_value(callback_query.get("message"))
+        chat = object_value(message.get("chat"))
+        chat_id = str(chat.get("id") or "")
+        user = object_value(callback_query.get("from"))
+        user_id = str(user.get("id") or "")
+        parsed = parse_prompt_callback_data(data)
+        if not parsed:
+            self.answer_callback(callback_id, "Unknown choice")
+            return
+        prompt_id, choice = parsed
+        prompt = self.store.get_bot_prompt(prompt_id)
+        if prompt is None:
+            self.answer_callback(callback_id, "Prompt not found")
+            return
+        if chat_id and str(prompt["chat_id"]) != chat_id:
+            self.answer_callback(callback_id, "This prompt belongs to another chat")
+            return
+        if chat_id and not self.is_allowed(chat_id):
+            self.answer_callback(callback_id, "Chat is not allowed")
+            return
+        choices = prompt_choices(prompt)
+        if choice not in {item["choice"] for item in choices}:
+            self.answer_callback(callback_id, "Choice is not available")
+            return
+        row = self.store.record_bot_prompt_choice(
+            prompt_id,
+            choice=choice,
+            actor_user_id=user_id,
+            payload={"callback_query_id": callback_id, "chat_id": chat_id},
+        )
+        label = choice_label(choices, choice)
+        self.answer_callback(callback_id, f"Saved: {label}")
+        if row is not None:
+            self.logger.info("bot prompt choice prompt_id=%s choice=%s user_id=%s", prompt_id, choice, user_id)
+
+    def answer_callback(self, callback_id: str, text: str) -> None:
+        if not callback_id:
+            return
+        try:
+            self.api.answer_callback_query(callback_id, text)
+        except Exception:
+            self.logger.exception("failed to answer Telegram callback query")
 
     def capture_message(self, message: dict[str, Any]) -> str:
         chat = object_value(message.get("chat"))
@@ -554,6 +613,85 @@ def user_display_name(user: dict[str, Any]) -> str:
 def safe_file_name(value: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in {".", "-", "_"} else "_" for ch in value)
     return cleaned[:180] or "file"
+
+
+def send_bot_prompt(api: TelegramApiClient, store: ArchiveStore, prompt: dict[str, Any]) -> dict[str, Any]:
+    if str(prompt.get("status") or "pending") != "pending":
+        return {
+            "prompt_id": str(prompt["id"]),
+            "chat_id": str(prompt["chat_id"]),
+            "message_id": str(prompt.get("telegram_message_id") or ""),
+            "status": "skipped",
+            "reason": f"prompt is already {prompt.get('status')}",
+        }
+    text = format_prompt_message(prompt)
+    reply_markup = inline_keyboard_for_prompt(prompt)
+    payload = api.send_message(str(prompt["chat_id"]), text, reply_markup=reply_markup)
+    message_id = ""
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if isinstance(result, dict):
+        message_id = str(result.get("message_id") or "")
+    store.mark_bot_prompt_sent(str(prompt["id"]), telegram_message_id=message_id)
+    return {"prompt_id": str(prompt["id"]), "chat_id": str(prompt["chat_id"]), "message_id": message_id, "status": "sent"}
+
+
+def format_prompt_message(prompt: dict[str, Any]) -> str:
+    parts = [
+        str(prompt.get("title") or "Darchive prompt"),
+        "",
+        str(prompt.get("body") or ""),
+    ]
+    recommended = str(prompt.get("recommended_action") or "").strip()
+    if recommended:
+        parts.extend(["", recommended])
+    return "\n".join(parts).strip()[:3500]
+
+
+def inline_keyboard_for_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
+    buttons = []
+    for choice in prompt.get("choices") or []:
+        choice_id = str(choice.get("choice") or "")
+        label = str(choice.get("label") or choice_id)
+        if not choice_id:
+            continue
+        buttons.append({"text": label, "callback_data": prompt_callback_data(str(prompt["id"]), choice_id)})
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    return {"inline_keyboard": rows}
+
+
+def prompt_callback_data(prompt_id: str, choice: str) -> str:
+    return f"dai:{prompt_id}:{choice}"[:64]
+
+
+def parse_prompt_callback_data(value: str) -> tuple[str, str] | None:
+    if not value.startswith("dai:"):
+        return None
+    parts = value.split(":", 2)
+    if len(parts) != 3 or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
+def prompt_choices(prompt: Any) -> list[dict[str, str]]:
+    raw = prompt["choices_json"] if hasattr(prompt, "keys") and "choices_json" in prompt.keys() else "[]"
+    try:
+        payload = json.loads(str(raw or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [
+        {"choice": str(item.get("choice") or ""), "label": str(item.get("label") or "")}
+        for item in payload
+        if isinstance(item, dict) and str(item.get("choice") or "").strip()
+    ]
+
+
+def choice_label(choices: list[dict[str, str]], choice: str) -> str:
+    for item in choices:
+        if item["choice"] == choice:
+            return item["label"] or choice
+    return choice
 
 
 def build_logger(settings: Settings) -> logging.Logger:

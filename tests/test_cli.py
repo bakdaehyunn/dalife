@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from darchivebot import cli
 from darchivebot.cli import main
@@ -944,6 +945,87 @@ def test_process_export_graph_does_not_refresh_when_nothing_processed(tmp_path, 
     assert not jsonld_graph_path.exists()
 
 
+def test_telegram_digest_dry_run_outputs_phone_prompt(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path, chat_ids=("123",))
+    store = ArchiveStore(settings.state_dir)
+    add_archive_item(
+        store,
+        message_id=1001,
+        title="Phone-first archive workflow",
+        primary_interest="product",
+        secondary_interests=["AI"],
+        topic="darchive",
+        tags=["telegram"],
+        revisit_reason="turn this into a tap-based product loop",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["telegram-digest", "--kind", "revisit", "--dry-run", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "dry-run"
+    assert payload["prompt"]["prompt_type"] == "digest_revisit"
+    assert "Phone-first archive workflow" in payload["prompt"]["body"]
+    assert "tap-based product loop" in payload["prompt"]["body"]
+    assert "choices" in payload["prompt"]
+
+
+def test_telegram_digest_sends_once_per_prompt_key(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path, token="token", chat_ids=("123",))
+    store = ArchiveStore(settings.state_dir)
+    add_archive_item(
+        store,
+        message_id=1002,
+        title="Daily revisit candidate",
+        primary_interest="product",
+        secondary_interests=["AI"],
+        topic="darchive",
+        tags=["telegram"],
+        revisit_reason="review this today",
+    )
+    fake_api = FakeDigestTelegramApi()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "TelegramApiClient", lambda token: fake_api)
+
+    assert main(["telegram-digest", "--kind", "revisit"]) == 0
+    assert main(["telegram-digest", "--kind", "revisit"]) == 0
+
+    output = capsys.readouterr().out
+    assert "sent revisit prompt" in output
+    assert "prompt is already sent" in output
+    assert len(fake_api.messages) == 1
+    prompts = store.list_bot_prompts()
+    assert len(prompts) == 1
+    assert prompts[0]["status"] == "sent"
+
+
+def test_processed_capture_prompt_is_sent_without_manual_command(tmp_path, monkeypatch):
+    settings = make_cli_settings(tmp_path, token="token", chat_ids=("123",))
+    store = ArchiveStore(settings.state_dir)
+    capture_id = add_archive_item(
+        store,
+        message_id=1003,
+        title="Weak classification item",
+        primary_interest="other/unknown",
+        secondary_interests=[],
+        topic="",
+        tags=[],
+        confidence=0.2,
+        needs_review=True,
+    )
+    store.mark_capture_processed(capture_id)
+    fake_api = FakeDigestTelegramApi()
+    monkeypatch.setattr(cli, "TelegramApiClient", lambda token: fake_api)
+
+    sent = cli.send_processed_capture_prompts(settings, store, [{"status": "processed", "capture_id": capture_id}])
+
+    assert len(sent) == 1
+    assert len(fake_api.messages) == 1
+    assert "Weak classification item" in fake_api.messages[0]["text"]
+    keyboard = fake_api.messages[0]["reply_markup"]["inline_keyboard"]
+    assert any(button["text"] == "Needs review" for row in keyboard for button in row)
+
+
 def add_archive_item(
     store: ArchiveStore,
     *,
@@ -958,6 +1040,7 @@ def add_archive_item(
     needs_review: bool = False,
     key_points: list[str] | None = None,
     insight_seed: str = "connect later",
+    revisit_reason: str = "",
     raw_text: str | None = None,
 ) -> str:
     capture_id = store.add_capture(
@@ -988,12 +1071,22 @@ def add_archive_item(
             "tags": tags,
             "classification_reason": classification_reason,
             "revisit_priority": "medium",
+            "revisit_reason": revisit_reason,
             "insight_seed": insight_seed,
             "confidence": confidence,
             "needs_review": needs_review,
         },
     )
     return capture_id
+
+
+class FakeDigestTelegramApi:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, Any]] = []
+
+    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.messages.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+        return {"result": {"message_id": len(self.messages)}}
 
 
 def make_cli_settings(

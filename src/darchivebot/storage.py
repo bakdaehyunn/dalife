@@ -154,12 +154,47 @@ CREATE TABLE IF NOT EXISTS insight_note_items (
   UNIQUE(insight_note_id, archive_item_id)
 );
 
+CREATE TABLE IF NOT EXISTS bot_prompts (
+  id TEXT PRIMARY KEY,
+  prompt_key TEXT NOT NULL UNIQUE,
+  chat_id TEXT NOT NULL,
+  prompt_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  capture_id TEXT REFERENCES captures(id) ON DELETE SET NULL,
+  archive_item_id TEXT REFERENCES archive_items(id) ON DELETE SET NULL,
+  insight_note_id TEXT REFERENCES insight_notes(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  recommended_action TEXT NOT NULL,
+  choices_json TEXT NOT NULL,
+  selected_choice TEXT,
+  selected_payload_json TEXT NOT NULL DEFAULT '{}',
+  telegram_message_id TEXT,
+  created_at TEXT NOT NULL,
+  sent_at TEXT,
+  responded_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bot_prompt_events (
+  id TEXT PRIMARY KEY,
+  prompt_id TEXT NOT NULL REFERENCES bot_prompts(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  choice TEXT,
+  actor_user_id TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_captures_status_created ON captures(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_capture_files_capture_id ON capture_files(capture_id);
 CREATE INDEX IF NOT EXISTS idx_processing_runs_capture_id ON processing_runs(capture_id);
 CREATE INDEX IF NOT EXISTS idx_archive_interpretations_capture_id ON archive_interpretations(capture_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_insight_notes_period ON insight_notes(period_type, period_start, period_end);
 CREATE INDEX IF NOT EXISTS idx_insight_note_items_archive_item_id ON insight_note_items(archive_item_id);
+CREATE INDEX IF NOT EXISTS idx_bot_prompts_status_created ON bot_prompts(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_bot_prompts_capture ON bot_prompts(capture_id);
+CREATE INDEX IF NOT EXISTS idx_bot_prompt_events_prompt ON bot_prompt_events(prompt_id, created_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS archive_search_fts USING fts5(
   archive_item_id UNINDEXED,
@@ -544,6 +579,141 @@ class ArchiveStore:
                       END ASC,
                       ai.updated_at DESC,
                       ai.id ASC
+                    LIMIT ?
+                    """,
+                    tuple(params),
+                )
+            )
+
+    def create_bot_prompt(
+        self,
+        *,
+        prompt_key: str,
+        chat_id: str,
+        prompt_type: str,
+        capture_id: str = "",
+        archive_item_id: str = "",
+        insight_note_id: str = "",
+        title: str,
+        body: str,
+        recommended_action: str,
+        choices: list[dict[str, str]],
+    ) -> sqlite3.Row:
+        self.init_db()
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO bot_prompts(
+                  id, prompt_key, chat_id, prompt_type, status,
+                  capture_id, archive_item_id, insight_note_id,
+                  title, body, recommended_action, choices_json,
+                  selected_payload_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                ON CONFLICT(prompt_key) DO UPDATE SET
+                  title = excluded.title,
+                  body = excluded.body,
+                  recommended_action = excluded.recommended_action,
+                  choices_json = excluded.choices_json,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    str(uuid.uuid4()),
+                    prompt_key,
+                    chat_id,
+                    prompt_type,
+                    capture_id or None,
+                    archive_item_id or None,
+                    insight_note_id or None,
+                    title,
+                    body,
+                    recommended_action,
+                    dumps(choices),
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute("SELECT * FROM bot_prompts WHERE prompt_key = ?", (prompt_key,)).fetchone()
+            if row is None:
+                raise RuntimeError("failed to insert or load bot prompt")
+            return row
+
+    def get_bot_prompt(self, prompt_id: str) -> sqlite3.Row | None:
+        self.init_db()
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM bot_prompts WHERE id = ?", (prompt_id,)).fetchone()
+
+    def mark_bot_prompt_sent(self, prompt_id: str, *, telegram_message_id: str = "") -> None:
+        self.init_db()
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE bot_prompts
+                SET status = CASE WHEN status = 'pending' THEN 'sent' ELSE status END,
+                    telegram_message_id = COALESCE(NULLIF(?, ''), telegram_message_id),
+                    sent_at = COALESCE(NULLIF(sent_at, ''), ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (telegram_message_id, now, now, prompt_id),
+            )
+            insert_bot_prompt_event(conn, prompt_id=prompt_id, event_type="sent", payload={"telegram_message_id": telegram_message_id})
+
+    def record_bot_prompt_choice(
+        self,
+        prompt_id: str,
+        *,
+        choice: str,
+        actor_user_id: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> sqlite3.Row | None:
+        self.init_db()
+        now = utc_now()
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM bot_prompts WHERE id = ?", (prompt_id,)).fetchone()
+            if row is None:
+                return None
+            if str(row["selected_choice"] or "") == choice:
+                return row
+            conn.execute(
+                """
+                UPDATE bot_prompts
+                SET status = 'responded',
+                    selected_choice = ?,
+                    selected_payload_json = ?,
+                    responded_at = COALESCE(NULLIF(responded_at, ''), ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (choice, dumps(payload or {}), now, now, prompt_id),
+            )
+            insert_bot_prompt_event(
+                conn,
+                prompt_id=prompt_id,
+                event_type="choice",
+                choice=choice,
+                actor_user_id=actor_user_id,
+                payload=payload or {},
+            )
+            return conn.execute("SELECT * FROM bot_prompts WHERE id = ?", (prompt_id,)).fetchone()
+
+    def list_bot_prompts(self, *, status: str = "", limit: int = 20) -> list[sqlite3.Row]:
+        self.init_db()
+        where = ""
+        params: list[Any] = []
+        if status:
+            where = "WHERE status = ?"
+            params.append(status)
+        params.append(limit)
+        with self.connect() as conn:
+            return list(
+                conn.execute(
+                    f"""
+                    SELECT * FROM bot_prompts
+                    {where}
+                    ORDER BY created_at DESC, id ASC
                     LIMIT ?
                     """,
                     tuple(params),
@@ -979,6 +1149,34 @@ def raw_json_list(raw: Any, key: str) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def insert_bot_prompt_event(
+    conn: sqlite3.Connection,
+    *,
+    prompt_id: str,
+    event_type: str,
+    choice: str = "",
+    actor_user_id: str = "",
+    payload: dict[str, Any] | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO bot_prompt_events(
+          id, prompt_id, event_type, choice, actor_user_id, payload_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            prompt_id,
+            event_type,
+            choice,
+            actor_user_id,
+            dumps(payload or {}),
+            utc_now(),
+        ),
+    )
 
 
 def archive_rows_for_search(conn: sqlite3.Connection) -> list[sqlite3.Row]:

@@ -18,9 +18,16 @@ def test_launchd_scripts_reference_bot_and_processor():
     install = (ROOT / "scripts" / "install_launch_agent.sh").read_text(encoding="utf-8")
     assert "com.hennei.darchivebot.telegram" in install
     assert "com.hennei.darchivebot.processor" in install
+    assert "com.hennei.darchivebot.digest" in install
+    assert "com.hennei.darchivebot.digest.project-seed" in install
+    assert "com.hennei.darchivebot.digest.weekly" in install
     assert "<string>telegram</string>" in install
     assert "<string>process</string>" in install
     assert "<string>--export-graph</string>" in install
+    assert "<string>telegram-digest</string>" in install
+    assert "<string>revisit</string>" in install
+    assert "<string>project-seed</string>" in install
+    assert "<string>weekly</string>" in install
     assert "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" in install
 
 

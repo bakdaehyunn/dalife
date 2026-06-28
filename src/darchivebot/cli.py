@@ -11,6 +11,12 @@ from darchivebot.config import DEFAULT_ENV_FILE, ROOT, Settings, ensure_local_di
 from darchivebot.doctor import run_doctor
 from darchivebot.graph import default_graph_path, export_graph as export_jsonld_graph
 from darchivebot.insights import generate_insight_note, list_insight_notes, show_insight_note
+from darchivebot.bot_prompts import (
+    create_post_process_prompt,
+    create_project_seed_digest_prompt,
+    create_revisit_digest_prompt,
+    create_weekly_insight_prompt,
+)
 from darchivebot.processor import CaptureProcessor, format_results
 from darchivebot.readiness import (
     ISSUE_NAMES,
@@ -39,6 +45,7 @@ from darchivebot.telegram import (
     discover_chat_candidates,
     format_rooms_report,
     read_room_state,
+    send_bot_prompt,
 )
 from darchivebot.web import serve_local_web
 
@@ -82,6 +89,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_telegram = sub.add_parser("telegram", help="Run Telegram polling capture bot")
     p_telegram.add_argument("--poll-interval-sec", type=float, default=1.0)
+
+    p_telegram_digest = sub.add_parser("telegram-digest", help="Send scheduled phone-first Telegram recommendation prompts")
+    p_telegram_digest.add_argument("--kind", choices=["revisit", "project-seed", "weekly"], default="revisit")
+    p_telegram_digest.add_argument("--limit", type=int, default=3)
+    p_telegram_digest.add_argument("--dry-run", action="store_true")
+    p_telegram_digest.add_argument("--json", action="store_true")
 
     p_process = sub.add_parser("process", help="Process pending captures into archive metadata")
     p_process.add_argument("--limit", type=int)
@@ -240,6 +253,15 @@ def main(argv: list[str] | None = None) -> int:
         bot = TelegramCaptureBot(settings, store)
         bot.run_polling(poll_interval_sec=args.poll_interval_sec)
         return 0
+    if args.cmd == "telegram-digest":
+        return telegram_digest_cmd(
+            settings,
+            store,
+            kind=args.kind,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            json_output=args.json,
+        )
     if args.cmd == "process":
         processor = CaptureProcessor(settings, store)
         results = processor.process_pending(
@@ -253,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.export_graph and not args.dry_run and any(item.get("status") == "processed" for item in results):
             semantic_graph_result = sync_semantic_store(store, default_semantic_store_path(settings.root))
             jsonld_graph_result = export_jsonld_graph(store, default_graph_path(settings.root))
+        if not args.dry_run:
+            send_processed_capture_prompts(settings, store, results)
         print(
             format_process_and_graph_results(
                 results,
@@ -524,6 +548,85 @@ def send_test_cmd(
     TelegramApiClient(settings.telegram_bot_token).send_message(target, "다카이브봇 테스트 메시지입니다.")
     print(f"sent test message to {mask_identifier(target)}")
     return 0
+
+
+def telegram_digest_cmd(
+    settings: Settings,
+    store: ArchiveStore,
+    *,
+    kind: str,
+    limit: int,
+    dry_run: bool,
+    json_output: bool,
+) -> int:
+    chat_id = target_prompt_chat_id(settings)
+    if not chat_id:
+        message = "No Telegram chat is configured for proactive Darchive prompts."
+        if json_output:
+            print(json.dumps({"status": "skipped", "reason": message}, ensure_ascii=False, indent=2))
+        else:
+            print(f"[SKIP] {message}")
+        return 0
+    prompt = create_digest_prompt(store, chat_id=chat_id, kind=kind, limit=limit)
+    if prompt is None:
+        payload = {"status": "skipped", "kind": kind, "reason": "no useful prompt candidates"}
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[SKIP] {payload['reason']}")
+        return 0
+    if dry_run:
+        payload = {"status": "dry-run", "kind": kind, "prompt": prompt}
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[dry-run] would send {prompt['title']}")
+        return 0
+    if not settings.telegram_bot_token:
+        payload = {"status": "skipped", "kind": kind, "reason": "TELEGRAM_BOT_TOKEN is not configured", "prompt": prompt}
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[SKIP] {payload['reason']}")
+        return 0
+    result = send_bot_prompt(TelegramApiClient(settings.telegram_bot_token), store, prompt)
+    payload = {"kind": kind, **result}
+    if json_output:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif payload.get("status") == "sent":
+        print(f"sent {kind} prompt to {mask_identifier(chat_id)}")
+    else:
+        print(f"[SKIP] {payload.get('reason') or 'prompt was not sent'}")
+    return 0
+
+
+def create_digest_prompt(store: ArchiveStore, *, chat_id: str, kind: str, limit: int) -> dict[str, Any] | None:
+    if kind == "revisit":
+        return create_revisit_digest_prompt(store, chat_id, limit=limit)
+    if kind == "project-seed":
+        return create_project_seed_digest_prompt(store, chat_id, limit=limit)
+    if kind == "weekly":
+        return create_weekly_insight_prompt(store, chat_id)
+    return None
+
+
+def send_processed_capture_prompts(settings: Settings, store: ArchiveStore, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not settings.telegram_bot_token:
+        return []
+    api = TelegramApiClient(settings.telegram_bot_token)
+    sent: list[dict[str, Any]] = []
+    for item in results:
+        if item.get("status") != "processed":
+            continue
+        prompt = create_post_process_prompt(store, str(item.get("capture_id") or ""))
+        if prompt is None:
+            continue
+        try:
+            sent.append(send_bot_prompt(api, store, prompt))
+        except Exception:
+            # Scheduled processing should not fail only because Telegram delivery failed.
+            continue
+    return sent
+
+
+def target_prompt_chat_id(settings: Settings) -> str:
+    state = read_room_state(settings)
+    if state.darchive_chat_id:
+        return state.darchive_chat_id
+    if len(settings.telegram_allowed_chat_ids) == 1:
+        return settings.telegram_allowed_chat_ids[0]
+    return ""
 
 
 def list_cmd(store: ArchiveStore, limit: int, interest: str, json_output: bool) -> int:

@@ -18,6 +18,9 @@ Archive Layer
 Semantic Graph Layer
   -> interests, topics, concepts, claims, questions, and relation candidates generated from validated archive rows
 
+Telegram Recommendation Layer
+  -> concise prompts, inline choices, and local audit history when the user needs to classify, revisit, keep, ignore, or turn an item into a project seed
+
 Viewpoint Layer
   -> related captures, recurring themes, unresolved questions, project seeds, periodic insight notes, and Codex discussion context
 ```
@@ -60,6 +63,12 @@ From the Semantic Graph Layer:
 - claim nodes
 - question nodes
 - relation candidates
+
+From the Telegram Recommendation Layer:
+- prompt status
+- selected choice
+- prompt and choice audit events
+- project-seed, revisit, keep, needs-review, and ignore decisions
 
 Raw extracted text should stay out of normal Viewpoint Layer inputs by default. It can be included only through explicit local review commands when the user needs deeper analysis.
 
@@ -115,7 +124,19 @@ Weekly or monthly notes should summarize:
 - useful items to revisit
 - possible project or writing seeds
 
-Insight notes should start as drafts. They should not become automation, calendar entries, or Telegram summaries until local review is useful.
+Insight notes should start as drafts. Telegram should ask for a short confirmation before creating or revisiting them; it should not push long raw summaries or mutate archive facts without a local controlled action.
+
+### Stage 4.5: phone-first recommendation prompts
+
+Goal: let the user make lightweight archive decisions from a phone without memorizing commands.
+
+Prompts should be sent only when there is a useful choice:
+- weak classification or low confidence -> classify/review
+- revisit reason or high priority -> revisit/keep/ignore
+- insight seed -> project seed/revisit/keep/ignore
+- weekly pattern -> create local insight/later/ignore
+
+Every prompt and button choice should be stored in SQLite as local audit history. The button choice is a user decision record first; any later archive rewrite, insight creation, or external writeback should be a separate controlled action.
 
 ### Stage 5: Codex discussion context
 
@@ -142,8 +163,8 @@ Recommended scope:
 - add `darchive reprocess-plan` for weak/fallback archive items
 - allow explicit selected reprocessing with interpretation history
 - keep all commands local and inspect-first
-- do not generate insight notes yet
-- do not send Telegram summaries
+- keep Telegram prompts concise and choice-based
+- do not send full raw capture text through Telegram
 
 This phase gives the user a way to see whether the archive is strong enough for synthesis.
 
@@ -171,11 +192,9 @@ The inspection commands are local and do not call Codex, create insight notes, s
 ## Deferred work
 
 Do not start with:
-- weekly/monthly insight generation
 - Codex-generated relation edges
-- Telegram summaries
 - calendar, journal, or task automation
-- web UI
+- public web UI
 - destructive migrations
 
 Those should wait until the archive has enough reliable capture data and the graph/readiness commands show useful signals.
@@ -189,3 +208,5 @@ Those should wait until the archive has enough reliable capture data and the gra
 - Selected reprocessing must preserve prior interpretations instead of silently erasing them.
 - Every generated relation, theme, or note must preserve evidence item ids.
 - Generated insights start as drafts, not facts.
+- Telegram prompts carry concise summaries and choices only; raw capture text and files remain local by default.
+- Prompt button choices are audited as decisions, not silently applied as archive rewrites.

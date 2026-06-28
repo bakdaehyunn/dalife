@@ -12,7 +12,7 @@ from conftest import make_settings
 
 class FakeTelegramApi:
     def __init__(self, commands: list[dict[str, str]] | None = None) -> None:
-        self.commands = [{"command": "chatid", "description": "현재 채팅방 ID 확인"}] if commands is None else commands
+        self.commands = [{"command": "chatid", "description": "설정용 채팅방 ID 확인"}] if commands is None else commands
 
     def get_me(self) -> dict[str, object]:
         return {"ok": True, "result": {"username": "darchivebot"}}
@@ -20,8 +20,8 @@ class FakeTelegramApi:
     def get_my_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
         if scope is not None:
             return [
-                {"command": "chatid", "description": "현재 채팅방 ID 확인"},
-                {"command": "set_chat_room", "description": "현재 채팅방을 다카이브봇 사용 방으로 등록"},
+                {"command": "chatid", "description": "설정용 채팅방 ID 확인"},
+                {"command": "set_chat_room", "description": "설정용 다카이브봇 사용 방 등록"},
             ]
         return self.commands
 

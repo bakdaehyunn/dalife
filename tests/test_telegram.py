@@ -4,14 +4,15 @@ from pathlib import Path
 from typing import Any
 
 from darchivebot.storage import ArchiveStore
-from darchivebot.telegram import TelegramCaptureBot, extract_attachments, is_capturable_message, parse_command
+from darchivebot.telegram import TelegramCaptureBot, extract_attachments, is_capturable_message, parse_command, send_bot_prompt
 
 from conftest import make_settings
 
 
 class FakeTelegramApi:
     def __init__(self) -> None:
-        self.messages: list[tuple[str, str]] = []
+        self.messages: list[dict[str, Any]] = []
+        self.callback_answers: list[tuple[str, str]] = []
 
     def get_file(self, file_id: str) -> dict[str, Any]:
         return {"file_path": f"photos/{file_id}.jpg"}
@@ -20,8 +21,12 @@ class FakeTelegramApi:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"image")
 
-    def send_message(self, chat_id: str, text: str) -> None:
-        self.messages.append((chat_id, text))
+    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.messages.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+        return {"result": {"message_id": len(self.messages)}}
+
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+        self.callback_answers.append((callback_query_id, text))
 
 
 def test_parse_command_handles_bot_suffix():
@@ -93,3 +98,74 @@ def test_handle_update_ignores_service_event(tmp_path):
 
     assert capture_id is None
     assert store.list_captures(10) == []
+
+
+def test_send_bot_prompt_uses_inline_keyboard_and_marks_sent(tmp_path):
+    store = ArchiveStore(tmp_path / "state")
+    api = FakeTelegramApi()
+    prompt = store.create_bot_prompt(
+        prompt_key="telegram:prompt",
+        chat_id="123",
+        prompt_type="project_seed_candidate",
+        title="Project candidate",
+        body="Short summary only",
+        recommended_action="Choose",
+        choices=[
+            {"choice": "project_seed", "label": "Project seed"},
+            {"choice": "ignore", "label": "Ignore"},
+        ],
+    )
+
+    result = send_bot_prompt(api, store, {**dict(prompt), "choices": [{"choice": "project_seed", "label": "Project seed"}, {"choice": "ignore", "label": "Ignore"}]})  # type: ignore[arg-type]
+
+    assert result["message_id"] == "1"
+    assert api.messages[0]["chat_id"] == "123"
+    assert "Project candidate" in api.messages[0]["text"]
+    keyboard = api.messages[0]["reply_markup"]["inline_keyboard"]
+    assert keyboard[0][0]["text"] == "Project seed"
+    assert keyboard[0][0]["callback_data"].startswith(f"dai:{prompt['id']}:")
+    sent = store.get_bot_prompt(prompt["id"])
+    assert sent is not None
+    assert sent["status"] == "sent"
+
+
+def test_callback_buttons_record_each_choice_idempotently(tmp_path):
+    settings = make_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    api = FakeTelegramApi()
+    choices = [
+        {"choice": "project_seed", "label": "Project seed"},
+        {"choice": "revisit", "label": "Revisit"},
+        {"choice": "keep", "label": "Keep"},
+        {"choice": "needs_review", "label": "Needs review"},
+        {"choice": "ignore", "label": "Ignore"},
+    ]
+    bot = TelegramCaptureBot(settings, store, api=api)  # type: ignore[arg-type]
+
+    for index, choice in enumerate(choices, start=1):
+        prompt = store.create_bot_prompt(
+            prompt_key=f"callback:{choice['choice']}",
+            chat_id="123",
+            prompt_type="review_classification",
+            title="Prompt",
+            body="Body",
+            recommended_action="Choose",
+            choices=choices,
+        )
+        bot.handle_update(
+            {
+                "update_id": index,
+                "callback_query": {
+                    "id": f"cb-{index}",
+                    "from": {"id": 42},
+                    "message": {"message_id": index, "chat": {"id": 123, "type": "private"}},
+                    "data": f"dai:{prompt['id']}:{choice['choice']}",
+                },
+            }
+        )
+        row = store.get_bot_prompt(prompt["id"])
+        assert row is not None
+        assert row["selected_choice"] == choice["choice"]
+
+    assert len(api.callback_answers) == len(choices)
+    assert all(answer[1].startswith("Saved:") for answer in api.callback_answers)
