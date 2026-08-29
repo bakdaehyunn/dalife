@@ -13,16 +13,17 @@ from darchivebot.codex_harness import (
     validate_codex_item,
 )
 from darchivebot.config import Settings
+from darchivebot.models import CaptureFileRecord, CaptureRecord
 from darchivebot.ocr import OcrAdapter, TesseractOcrAdapter
+from darchivebot.ports import ProcessingStore
 from darchivebot.state import file_lock
-from darchivebot.storage import ArchiveStore
 
 
 class CaptureProcessor:
     def __init__(
         self,
         settings: Settings,
-        store: ArchiveStore,
+        store: ProcessingStore,
         codex: CodexHarness | None = None,
         ocr: OcrAdapter | None = None,
     ) -> None:
@@ -99,7 +100,7 @@ class CaptureProcessor:
 
     def _process_capture_row(
         self,
-        capture: Any,
+        capture: CaptureRecord,
         *,
         dry_run: bool,
         codex_enabled: bool,
@@ -204,7 +205,7 @@ class CaptureProcessor:
                 progress({"event": "failed", **result})
             return result
 
-    def basic_extract(self, packet: dict[str, Any], files: list[Any]) -> dict[str, Any]:
+    def basic_extract(self, packet: dict[str, Any], files: list[CaptureFileRecord]) -> dict[str, Any]:
         text_parts = [
             str(packet.get("text") or "").strip(),
             str(packet.get("caption") or "").strip(),
@@ -266,7 +267,7 @@ class CaptureProcessor:
         )
 
 
-def build_capture_packet(capture: Any, files: list[Any]) -> dict[str, Any]:
+def build_capture_packet(capture: CaptureRecord, files: list[CaptureFileRecord]) -> dict[str, Any]:
     return {
         "capture_id": str(capture["id"]),
         "capture_key": str(capture["capture_key"]),
@@ -290,7 +291,7 @@ def build_capture_packet(capture: Any, files: list[Any]) -> dict[str, Any]:
     }
 
 
-def image_paths_for_files(files: list[Any]) -> list[Path]:
+def image_paths_for_files(files: list[CaptureFileRecord]) -> list[Path]:
     paths: list[Path] = []
     for row in files:
         local_path = str(row["local_path"] or "")
@@ -299,7 +300,7 @@ def image_paths_for_files(files: list[Any]) -> list[Path]:
     return paths
 
 
-def has_processable_content(packet: dict[str, Any], files: list[Any]) -> bool:
+def has_processable_content(packet: dict[str, Any], files: list[CaptureFileRecord]) -> bool:
     if str(packet.get("text") or "").strip() or str(packet.get("caption") or "").strip():
         return True
     return any(str(row["download_status"] or "") == "downloaded" and str(row["local_path"] or "") for row in files)

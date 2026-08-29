@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
+from darchivebot.archive_values import json_array
 from darchivebot.insights import generate_insight_note
-from darchivebot.storage import ArchiveStore
+from darchivebot.models import ArchiveItemRecord, BotPromptRecord
+from darchivebot.ports import PromptStore
 
 
 POST_PROCESS_CHOICES = [
@@ -28,7 +29,7 @@ WEEKLY_CHOICES = [
 ]
 
 
-def create_post_process_prompt(store: ArchiveStore, capture_id: str) -> dict[str, Any] | None:
+def create_post_process_prompt(store: PromptStore, capture_id: str) -> dict[str, Any] | None:
     capture = store.get_capture(capture_id)
     archive = store.get_archive_item(capture_id)
     if capture is None or archive is None:
@@ -53,7 +54,7 @@ def create_post_process_prompt(store: ArchiveStore, capture_id: str) -> dict[str
     return prompt_to_dict(prompt)
 
 
-def create_revisit_digest_prompt(store: ArchiveStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
+def create_revisit_digest_prompt(store: PromptStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
     rows = store.review_archive_items(limit=limit, revisit_only=True)
     if not rows:
         return None
@@ -71,7 +72,7 @@ def create_revisit_digest_prompt(store: ArchiveStore, chat_id: str, *, limit: in
     return prompt_to_dict(prompt)
 
 
-def create_project_seed_digest_prompt(store: ArchiveStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
+def create_project_seed_digest_prompt(store: PromptStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
     rows = [
         row
         for row in store.review_archive_items(limit=20, revisit_only=True)
@@ -93,7 +94,7 @@ def create_project_seed_digest_prompt(store: ArchiveStore, chat_id: str, *, limi
     return prompt_to_dict(prompt)
 
 
-def create_weekly_insight_prompt(store: ArchiveStore, chat_id: str) -> dict[str, Any] | None:
+def create_weekly_insight_prompt(store: PromptStore, chat_id: str) -> dict[str, Any] | None:
     result = generate_insight_note(store, period="weekly", dry_run=True, include_needs_review=False)
     if result.get("status") != "dry-run":
         return None
@@ -111,7 +112,7 @@ def create_weekly_insight_prompt(store: ArchiveStore, chat_id: str) -> dict[str,
     return prompt_to_dict(prompt)
 
 
-def prompt_classification(row: Any) -> str:
+def prompt_classification(row: ArchiveItemRecord) -> str:
     if bool(row["needs_review"]) or float(row["confidence"] or 0.0) < 0.5:
         return "review_classification"
     primary = str(row["primary_interest"] or "").strip().lower()
@@ -133,7 +134,7 @@ def recommended_action_for_classification(classification: str) -> str:
     }.get(classification, "Choose how to keep this archive item.")
 
 
-def post_process_body(row: Any, classification: str) -> str:
+def post_process_body(row: ArchiveItemRecord, classification: str) -> str:
     lines = [
         f"Title: {safe_title(row)}",
         f"Summary: {safe_summary(row)}",
@@ -149,7 +150,7 @@ def post_process_body(row: Any, classification: str) -> str:
     return "\n".join(lines)
 
 
-def digest_item_line(index: int, row: Any) -> str:
+def digest_item_line(index: int, row: ArchiveItemRecord) -> str:
     parts = [
         f"{index}. {safe_title(row)}",
         truncate(row["core_summary"] or row["summary"], 160),
@@ -160,7 +161,7 @@ def digest_item_line(index: int, row: Any) -> str:
     return "\n".join(part for part in parts if part)
 
 
-def project_seed_digest_item_line(index: int, row: Any) -> str:
+def project_seed_digest_item_line(index: int, row: ArchiveItemRecord) -> str:
     parts = [
         f"{index}. {safe_title(row)}",
         truncate(row["core_summary"] or row["summary"], 160),
@@ -174,7 +175,7 @@ def project_seed_digest_item_line(index: int, row: Any) -> str:
     return "\n".join(part for part in parts if part)
 
 
-def prompt_to_dict(row: Any) -> dict[str, Any]:
+def prompt_to_dict(row: BotPromptRecord) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
         "prompt_key": str(row["prompt_key"]),
@@ -184,15 +185,15 @@ def prompt_to_dict(row: Any) -> dict[str, Any]:
         "title": str(row["title"]),
         "body": str(row["body"]),
         "recommended_action": str(row["recommended_action"]),
-        "choices": json_list(row["choices_json"]),
+        "choices": decode_choices(row["choices_json"]),
     }
 
 
-def safe_title(row: Any) -> str:
+def safe_title(row: ArchiveItemRecord) -> str:
     return truncate(row["title"] or "Untitled archive item", 120)
 
 
-def safe_summary(row: Any) -> str:
+def safe_summary(row: ArchiveItemRecord) -> str:
     return truncate(row["core_summary"] or row["summary"] or "", 260)
 
 
@@ -203,13 +204,8 @@ def truncate(value: Any, limit: int) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def json_list(value: Any) -> list[dict[str, str]]:
-    try:
-        payload = json.loads(str(value or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
+def decode_choices(value: Any) -> list[dict[str, str]]:
+    payload = json_array(value)
     return [
         {"choice": str(item.get("choice") or ""), "label": str(item.get("label") or "")}
         for item in payload

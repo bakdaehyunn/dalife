@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 from darchivebot.config import Settings, ensure_local_dirs
-from darchivebot.storage import ArchiveStore
+from darchivebot.ports import DatabasePort
 from darchivebot.telegram import (
     DEFAULT_BOT_COMMANDS,
     REGISTERED_CHAT_BOT_COMMANDS,
@@ -18,7 +18,7 @@ from darchivebot.telegram import (
 
 def run_doctor(
     settings: Settings,
-    store: ArchiveStore,
+    store: DatabasePort,
     *,
     online: bool = False,
     telegram_api: TelegramApiClient | None = None,

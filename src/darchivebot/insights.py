@@ -5,8 +5,10 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from darchivebot.archive_values import clean, confidence, json_string_list as json_list
+from darchivebot.models import ArchiveItemRecord, InsightEvidenceRecord, InsightNoteRecord
+from darchivebot.ports import InsightSynthesisStore
 from darchivebot.readiness import candidate_reasons, related_match
-from darchivebot.storage import ArchiveStore
 
 
 MIN_EVIDENCE_ITEMS = 2
@@ -23,7 +25,7 @@ BLOCKING_READINESS_REASONS = {
 
 
 def generate_insight_note(
-    store: ArchiveStore,
+    store: InsightSynthesisStore,
     *,
     period: str = "weekly",
     dry_run: bool = False,
@@ -62,12 +64,12 @@ def generate_insight_note(
     return {"status": "created", "insight_id": note_id, "note": {**note, "id": note_id}}
 
 
-def list_insight_notes(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
+def list_insight_notes(store: InsightSynthesisStore, *, limit: int = 20) -> dict[str, Any]:
     notes = [insight_note_row(row) for row in store.list_insight_notes(limit)]
     return {"notes": notes, "count": len(notes)}
 
 
-def show_insight_note(store: ArchiveStore, note_id: str) -> dict[str, Any] | None:
+def show_insight_note(store: InsightSynthesisStore, note_id: str) -> dict[str, Any] | None:
     row = store.get_insight_note(note_id)
     if row is None:
         return None
@@ -83,13 +85,13 @@ def show_insight_note(store: ArchiveStore, note_id: str) -> dict[str, Any] | Non
 
 
 def eligible_archive_rows(
-    rows: list[Any],
+    rows: list[ArchiveItemRecord],
     *,
     period_start: datetime,
     period_end: datetime,
     include_needs_review: bool,
-) -> list[Any]:
-    eligible = []
+) -> list[ArchiveItemRecord]:
+    eligible: list[ArchiveItemRecord] = []
     for row in rows:
         if str(row["capture_status"] or "") != "processed":
             continue
@@ -108,7 +110,7 @@ def eligible_archive_rows(
     return eligible
 
 
-def build_local_note(rows: list[Any], *, period_start: datetime, period_end: datetime) -> dict[str, Any]:
+def build_local_note(rows: list[ArchiveItemRecord], *, period_start: datetime, period_end: datetime) -> dict[str, Any]:
     interests = Counter[str]()
     topics = Counter[str]()
     concepts = Counter[str]()
@@ -177,7 +179,7 @@ def recurring_themes(interests: Counter[str], topics: Counter[str], concepts: Co
     return themes
 
 
-def related_groups(rows: list[Any]) -> list[dict[str, Any]]:
+def related_groups(rows: list[ArchiveItemRecord]) -> list[dict[str, Any]]:
     groups = []
     for index, source in enumerate(rows):
         for candidate in rows[index + 1 :]:
@@ -196,7 +198,7 @@ def related_groups(rows: list[Any]) -> list[dict[str, Any]]:
     return groups[:5]
 
 
-def local_questions(rows: list[Any], leading_interest: str, leading_topic: str) -> list[str]:
+def local_questions(rows: list[ArchiveItemRecord], leading_interest: str, leading_topic: str) -> list[str]:
     questions = []
     if leading_interest and leading_interest != "local archive":
         questions.append(f"What is changing in my saved {leading_interest} material?")
@@ -211,7 +213,7 @@ def local_questions(rows: list[Any], leading_interest: str, leading_topic: str) 
     return questions[:3]
 
 
-def suggested_reviews(rows: list[Any]) -> list[dict[str, str]]:
+def suggested_reviews(rows: list[ArchiveItemRecord]) -> list[dict[str, str]]:
     suggestions = []
     priority_order = {"high": 0, "medium": 1, "low": 2}
     sorted_rows = sorted(
@@ -231,7 +233,7 @@ def suggested_reviews(rows: list[Any]) -> list[dict[str, str]]:
     return suggestions
 
 
-def insight_note_row(row: Any) -> dict[str, Any]:
+def insight_note_row(row: InsightNoteRecord) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
         "period_type": str(row["period_type"]),
@@ -249,7 +251,7 @@ def insight_note_row(row: Any) -> dict[str, Any]:
     }
 
 
-def evidence_row(row: Any) -> dict[str, Any]:
+def evidence_row(row: InsightEvidenceRecord) -> dict[str, Any]:
     return {
         "archive_item_id": str(row["archive_item_id"]),
         "capture_id": str(row["capture_id"]),
@@ -270,7 +272,7 @@ def weekly_period() -> tuple[datetime, datetime]:
     return start, end
 
 
-def row_timestamp(row: Any) -> datetime | None:
+def row_timestamp(row: ArchiveItemRecord) -> datetime | None:
     for key in ("message_datetime", "updated_at", "created_at"):
         value = clean(row[key])
         if not value:
@@ -297,29 +299,8 @@ def format_counts(counts: Counter[str]) -> str:
     return ", ".join(f"{name} ({count})" for name, count in counts.most_common(3))
 
 
-def confidence(row: Any) -> float:
-    try:
-        return float(row["confidence"] or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def json_list(value: Any) -> list[str]:
-    try:
-        payload = json.loads(str(value or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [clean(item) for item in payload if clean(item)]
-
-
 def load_json(value: Any) -> Any:
     try:
         return json.loads(str(value or "[]"))
     except json.JSONDecodeError:
         return []
-
-
-def clean(value: Any) -> str:
-    return str(value or "").strip()

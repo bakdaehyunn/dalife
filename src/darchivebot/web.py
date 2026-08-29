@@ -8,14 +8,14 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from darchivebot.insights import list_insight_notes, show_insight_note
+from darchivebot.ports import WebStore
 from darchivebot.search import archive_detail, rebuild_search_index, review_queue, search_archive
-from darchivebot.storage import ArchiveStore
 
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
-def serve_local_web(store: ArchiveStore, *, host: str = "127.0.0.1", port: int = 8765) -> None:
+def serve_local_web(store: WebStore, *, host: str = "127.0.0.1", port: int = 8765) -> None:
     if host not in LOCAL_HOSTS:
         raise ValueError("Darchivebot web UI is local-only; use 127.0.0.1, localhost, or ::1")
     handler = make_handler(store)
@@ -24,7 +24,7 @@ def serve_local_web(store: ArchiveStore, *, host: str = "127.0.0.1", port: int =
     server.serve_forever()
 
 
-def make_handler(store: ArchiveStore) -> type[BaseHTTPRequestHandler]:
+def make_handler(store: WebStore) -> type[BaseHTTPRequestHandler]:
     class DarchiveWebHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
             parsed = urlparse(self.path)
@@ -73,7 +73,7 @@ def make_handler(store: ArchiveStore) -> type[BaseHTTPRequestHandler]:
     return DarchiveWebHandler
 
 
-def render_home(store: ArchiveStore) -> str:
+def render_home(store: WebStore) -> str:
     rows = store.list_capture_summaries(30)
     items = []
     for row in rows:
@@ -90,7 +90,7 @@ def render_home(store: ArchiveStore) -> str:
     return page("Darchivebot Local Archive", content)
 
 
-def render_search(store: ArchiveStore, query: dict[str, list[str]]) -> str:
+def render_search(store: WebStore, query: dict[str, list[str]]) -> str:
     q = first(query, "q")
     if first(query, "rebuild"):
         rebuild_search_index(store)
@@ -113,7 +113,7 @@ def render_search(store: ArchiveStore, query: dict[str, list[str]]) -> str:
     return page("Search", content)
 
 
-def render_review(store: ArchiveStore, query: dict[str, list[str]]) -> str:
+def render_review(store: WebStore, query: dict[str, list[str]]) -> str:
     mode = first(query, "mode") or "all"
     result = review_queue(
         store,
@@ -145,7 +145,7 @@ def render_review(store: ArchiveStore, query: dict[str, list[str]]) -> str:
     return page("Review", nav_links() + tabs + section(f"Review queue: {escape(result['mode'])}", "".join(cards) or "<p>No review items.</p>"))
 
 
-def render_capture_detail(store: ArchiveStore, capture_id: str) -> str:
+def render_capture_detail(store: WebStore, capture_id: str) -> str:
     detail = archive_detail(store, capture_id)
     if detail is None:
         return page("Capture not found", "<p>Capture not found.</p>")
@@ -187,7 +187,7 @@ def render_capture_detail(store: ArchiveStore, capture_id: str) -> str:
     return page("Capture detail", content)
 
 
-def render_insights(store: ArchiveStore) -> str:
+def render_insights(store: WebStore) -> str:
     result = list_insight_notes(store, limit=30)
     cards = []
     for note in result["notes"]:
@@ -200,7 +200,7 @@ def render_insights(store: ArchiveStore) -> str:
     return page("Insights", nav_links() + section("Insight notes", "".join(cards) or "<p>No insight notes.</p>"))
 
 
-def render_insight_detail(store: ArchiveStore, insight_id: str) -> str:
+def render_insight_detail(store: WebStore, insight_id: str) -> str:
     result = show_insight_note(store, insight_id)
     if result is None:
         return page("Insight not found", "<p>Insight not found.</p>")

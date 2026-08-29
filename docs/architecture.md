@@ -43,8 +43,20 @@ future Viewpoint Layer
 
 ## 경계
 
-- `telegram`: Telegram polling, chat allow-list, raw message capture, media download.
-- `storage`: SQLite schema and deterministic writes.
+- `telegram`: compatibility surface and Telegram polling/capture orchestration.
+- `telegram_api`: Telegram HTTP transport only.
+- `telegram_messages`: Telegram message parsing and attachment classification.
+- `telegram_rooms`: room registration, allow-list state, and command scopes.
+- `telegram_prompts`: prompt rendering, inline buttons, and callback payloads.
+- `storage`: thin compatibility facade that composes focused persistence repositories.
+- `persistence/database`: SQLite path, connection, schema initialization, and migration entry point.
+- `persistence/schema`: declarative SQLite schema.
+- `persistence/search_index`: FTS schema repair, indexing, and migration helpers.
+- `persistence/*_repository`: focused capture, archive, processing, search, prompt, and insight persistence.
+- `models`: immutable typed records returned across the persistence boundary; mapping compatibility preserves existing Python callers without exposing `sqlite3.Row`.
+- `ports`: narrow structural interfaces used by processing, retrieval, graph, insight, Telegram, and web features.
+- `archive_values`: canonical JSON-column decoding and archive-item normalization.
+- `ontology`: exporter-independent ontology versions, URNs, and stable semantic identifiers.
 - `codex_harness`: non-interactive Codex invocation and JSON Schema setup.
 - `processor`: pending capture selection, Codex result validation, fallback extraction, state transitions.
 - `ocr`: optional local OCR fallback when Codex is disabled.
@@ -52,7 +64,28 @@ future Viewpoint Layer
 - `semantic_graph`: pyoxigraph RDF store sync, stats, and N-Quads export from validated archive rows.
 - `graph`: lightweight JSON-LD portable export from validated archive rows.
 - `web`: loopback-only local archive workbench over SQLite search/review/detail data.
-- `cli`: setup, doctor, polling, processing, listing, and utility commands.
+- `cli`: composition root and compatibility wrappers.
+- `cli_parser`: command and argument registration.
+- `cli_formatting`: terminal/JSON result formatting.
+- `cli_commands/*`: cohesive setup, Telegram, archive/retrieval/insight, and graph command handlers.
+
+## Dependency direction
+
+```text
+CLI / Web / Telegram adapters
+  -> application features (processor, search, readiness, insights, graph exporters)
+  -> narrow ports and typed models
+  -> focused persistence repositories
+  -> SQLite database, schema, migrations, and generated FTS index
+
+graph + semantic_graph
+  -> shared ontology identifiers and archive normalization
+  -> archive reader port
+```
+
+Application and presentation modules do not import `sqlite3` or receive `sqlite3.Row`. The persistence layer converts rows into immutable typed records before returning them. `ArchiveStore` remains as a small compatibility facade for existing tests and public callers, while new feature annotations depend on narrow protocols from `ports`.
+
+The JSON-LD and RDF exporters are sibling adapters. Both depend on `ontology` for identifiers; neither exporter owns the other's semantic rules.
 
 Codex is intentionally not allowed to write SQLite directly. Codex reads a bounded capture packet and attached images, returns structured JSON, then Python validates and writes the database. This keeps database mutation deterministic and makes retry/failure handling explicit.
 

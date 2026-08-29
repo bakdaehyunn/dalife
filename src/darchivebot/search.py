@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
+from darchivebot.archive_values import archive_item_to_dict, json_string_list, record_to_dict
+from darchivebot.models import ArchiveItemRecord
+from darchivebot.ports import RetrievalStore
 from darchivebot.readiness import related_captures
-from darchivebot.storage import ArchiveStore
 
 
 SEARCH_FIELDS = [
@@ -21,11 +22,11 @@ SEARCH_FIELDS = [
 ]
 
 
-def rebuild_search_index(store: ArchiveStore) -> dict[str, Any]:
+def rebuild_search_index(store: RetrievalStore) -> dict[str, Any]:
     return store.rebuild_search_index()
 
 
-def search_archive(store: ArchiveStore, query: str, *, limit: int = 20) -> dict[str, Any]:
+def search_archive(store: RetrievalStore, query: str, *, limit: int = 20) -> dict[str, Any]:
     rows = store.search_archive(format_fts_query(query), limit=limit)
     return {
         "query": query,
@@ -35,7 +36,7 @@ def search_archive(store: ArchiveStore, query: str, *, limit: int = 20) -> dict[
 
 
 def review_queue(
-    store: ArchiveStore,
+    store: RetrievalStore,
     *,
     limit: int = 20,
     needs_review_only: bool = False,
@@ -50,7 +51,7 @@ def review_queue(
     return {"mode": mode, "count": len(rows), "items": [archive_item_summary(row) for row in rows]}
 
 
-def archive_detail(store: ArchiveStore, capture_id: str, *, related_limit: int = 6) -> dict[str, Any] | None:
+def archive_detail(store: RetrievalStore, capture_id: str, *, related_limit: int = 6) -> dict[str, Any] | None:
     capture = store.get_capture(capture_id)
     if capture is None:
         return None
@@ -58,14 +59,14 @@ def archive_detail(store: ArchiveStore, capture_id: str, *, related_limit: int =
     archive = store.get_archive_item(capture_id)
     related = related_captures(store, capture_id, limit=related_limit) if archive is not None else None
     return {
-        "capture": row_to_dict(capture),
-        "files": [row_to_dict(file_row) for file_row in files],
+        "capture": record_to_dict(capture),
+        "files": [record_to_dict(file_row) for file_row in files],
         "archive_item": archive_item_to_dict(archive) if archive is not None else None,
         "related": related["related"] if related else [],
     }
 
 
-def search_result(row: Any, query: str) -> dict[str, Any]:
+def search_result(row: ArchiveItemRecord, query: str) -> dict[str, Any]:
     item = archive_item_summary(row)
     item["rank"] = float(row["search_rank"] or 0.0)
     item["snippet"] = clean_snippet(row["search_snippet"])
@@ -74,18 +75,18 @@ def search_result(row: Any, query: str) -> dict[str, Any]:
     return item
 
 
-def archive_item_summary(row: Any) -> dict[str, Any]:
+def archive_item_summary(row: ArchiveItemRecord) -> dict[str, Any]:
     return {
         "capture_id": str(row["capture_id"]),
         "archive_item_id": str(row["id"]),
         "title": str(row["title"] or ""),
         "summary": str(row["core_summary"] or row["summary"] or ""),
         "primary_interest": str(row["primary_interest"] or ""),
-        "secondary_interests": json_list(row["secondary_interests_json"]),
+        "secondary_interests": json_string_list(row["secondary_interests_json"]),
         "topic": str(row["topic"] or ""),
         "subtopic": str(row["subtopic"] or ""),
-        "tags": json_list(row["tags_json"]),
-        "questions": json_list(row["questions_json"]),
+        "tags": json_string_list(row["tags_json"]),
+        "questions": json_string_list(row["questions_json"]),
         "revisit_priority": str(row["revisit_priority"] or ""),
         "revisit_reason": str(row["revisit_reason"] or ""),
         "insight_seed": str(row["insight_seed"] or ""),
@@ -97,27 +98,7 @@ def archive_item_summary(row: Any) -> dict[str, Any]:
     }
 
 
-def archive_item_to_dict(row: Any) -> dict[str, Any]:
-    data = row_to_dict(row)
-    data["core_summary"] = data.get("core_summary") or data.get("summary") or ""
-    data["raw_extracted_text"] = data.get("raw_extracted_text") or data.get("extracted_text") or ""
-    data["key_points"] = json_list(data.get("key_points_json"))
-    data["tags"] = json_list(data.get("tags_json"))
-    data["secondary_interests"] = json_list(data.get("secondary_interests_json"))
-    data["questions"] = json_list(data.get("questions_json"))
-    data["relation_candidates"] = json_list(data.get("relation_candidates_json"))
-    data["dates_mentioned"] = json_list(data.get("dates_mentioned_json"))
-    data["people_mentioned"] = json_list(data.get("people_mentioned_json"))
-    data["action_candidates"] = json_list(data.get("action_candidates_json"))
-    data["needs_review"] = bool(data.get("needs_review"))
-    return data
-
-
-def row_to_dict(row: Any) -> dict[str, Any]:
-    return {key: row[key] for key in row.keys()}
-
-
-def matched_fields(row: Any, query: str) -> list[str]:
+def matched_fields(row: ArchiveItemRecord, query: str) -> list[str]:
     tokens = query_tokens(query)
     if not tokens:
         return []
@@ -148,13 +129,3 @@ def query_tokens(query: str) -> list[str]:
 
 def clean_snippet(value: Any) -> str:
     return str(value or "").replace("\n", " ").strip()
-
-
-def json_list(value: Any) -> list[str]:
-    try:
-        payload = json.loads(str(value or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [str(item) for item in payload if str(item).strip()]

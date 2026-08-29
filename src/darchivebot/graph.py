@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-import json
-import re
-import hashlib
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from darchivebot.archive_values import json_string_list, semantic_string_list
 from darchivebot.json_utils import dumps
-from darchivebot.storage import ArchiveStore
+from darchivebot.models import ArchiveItemRecord
+from darchivebot.ontology import (
+    GRAPH_EXPORT_VERSION,
+    ONTOLOGY_VERSION,
+    claim_id,
+    concept_id,
+    interest_id,
+    question_id,
+    relation_candidate_id,
+    topic_id,
+    urn,
+)
+from darchivebot.ports import ArchiveRepositoryPort
+from darchivebot.time_utils import utc_now
 
-
-ONTOLOGY_VERSION = "2026-06-08"
-GRAPH_EXPORT_VERSION = 1
 
 GRAPH_CONTEXT: dict[str, Any] = {
     "darch": "https://darchivebot.local/ontology#",
@@ -40,7 +47,7 @@ def default_graph_path(root: Path) -> Path:
 
 
 def export_graph(
-    store: ArchiveStore,
+    store: ArchiveRepositoryPort,
     output_path: Path,
     *,
     limit: int | None = None,
@@ -55,7 +62,7 @@ def export_graph(
     return metadata
 
 
-def build_graph_document(rows: list[Any], *, include_raw_text: bool = False) -> dict[str, Any]:
+def build_graph_document(rows: list[ArchiveItemRecord], *, include_raw_text: bool = False) -> dict[str, Any]:
     graph: list[dict[str, Any]] = []
     seen_node_ids: set[str] = set()
     for row in rows:
@@ -81,16 +88,16 @@ def build_graph_document(rows: list[Any], *, include_raw_text: bool = False) -> 
     return {"@context": GRAPH_CONTEXT, "metadata": metadata, "@graph": graph}
 
 
-def graph_nodes_for_archive_row(row: Any, *, include_raw_text: bool = False) -> list[dict[str, Any]]:
+def graph_nodes_for_archive_row(row: ArchiveItemRecord, *, include_raw_text: bool = False) -> list[dict[str, Any]]:
     archive_id = str(row["id"])
     capture_id = str(row["capture_id"])
     archive_node_id = urn("archive-item", archive_id)
     capture_node_id = urn("capture", capture_id)
-    key_points = json_list(row["key_points_json"])
-    tags = json_list(row["tags_json"])
-    secondary_interests = json_list(row["secondary_interests_json"])
-    questions = semantic_json_list(row, "questions_json", "questions")
-    relation_candidates = semantic_json_list(row, "relation_candidates_json", "relation_candidates")
+    key_points = json_string_list(row["key_points_json"])
+    tags = json_string_list(row["tags_json"])
+    secondary_interests = json_string_list(row["secondary_interests_json"])
+    questions = semantic_string_list(row, "questions_json", "questions")
+    relation_candidates = semantic_string_list(row, "relation_candidates_json", "relation_candidates")
     primary_interest = str(row["primary_interest"] or "").strip()
     topic = str(row["topic"] or "").strip()
     subtopic = str(row["subtopic"] or "").strip()
@@ -170,35 +177,6 @@ def named_node(node_id: str, node_type: str, name: str) -> dict[str, Any]:
     return {"@id": node_id, "@type": node_type, "title": name}
 
 
-def json_list(value: Any) -> list[str]:
-    try:
-        payload = json.loads(str(value or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [str(item).strip() for item in payload if str(item).strip()]
-
-
-def raw_json_list(row: Any, key: str) -> list[str]:
-    try:
-        payload = json.loads(str(row["raw_codex_json"] or "{}"))
-    except json.JSONDecodeError:
-        return []
-    value = payload.get(key)
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def semantic_json_list(row: Any, column: str, raw_key: str) -> list[str]:
-    if column in row.keys():
-        normalized = json_list(row[column])
-        if normalized:
-            return normalized
-    return raw_json_list(row, raw_key)
-
-
 def compact_dict(value: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, item in value.items():
@@ -206,45 +184,3 @@ def compact_dict(value: dict[str, Any]) -> dict[str, Any]:
             continue
         result[key] = item
     return result
-
-
-def interest_id(value: str) -> str:
-    return urn("interest", slugify(value or "other-unknown"))
-
-
-def topic_id(value: str) -> str:
-    return urn("topic", slugify(value))
-
-
-def concept_id(value: str) -> str:
-    return urn("concept", slugify(value))
-
-
-def claim_id(archive_id: str, index: int) -> str:
-    return urn("claim", f"{archive_id}-{index}")
-
-
-def question_id(value: str) -> str:
-    return urn("question", stable_hash(value))
-
-
-def relation_candidate_id(archive_id: str, value: str) -> str:
-    return urn("relation-candidate", stable_hash(f"{archive_id}:{value}"))
-
-
-def stable_hash(value: str) -> str:
-    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()[:16]
-
-
-def urn(kind: str, value: str) -> str:
-    return f"urn:darchive:{kind}:{value}"
-
-
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^0-9A-Za-z가-힣._/-]+", "-", value.strip().lower())
-    slug = slug.strip("-")
-    return slug or "unknown"
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")

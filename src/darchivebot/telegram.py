@@ -12,145 +12,51 @@ from urllib.request import Request, urlopen
 
 from darchivebot.config import Settings
 from darchivebot.json_utils import dumps
-from darchivebot.storage import ArchiveStore
-
-
-DEFAULT_BOT_COMMANDS = [
-    {"command": "chatid", "description": "설정용 채팅방 ID 확인"},
-]
-REGISTERED_CHAT_BOT_COMMANDS = [
-    *DEFAULT_BOT_COMMANDS,
-    {"command": "set_chat_room", "description": "설정용 다카이브봇 사용 방 등록"},
-]
-REGISTER_CHAT_ROOM_COMMAND = "/set_chat_room"
-
-
-@dataclass(frozen=True)
-class TelegramChatCandidate:
-    chat_id: str
-    title: str
-    chat_type: str
-
-
-@dataclass(frozen=True)
-class TelegramRoomState:
-    darchive_chat_id: str = ""
-    darchive_chat_title: str = ""
-    darchive_chat_type: str = ""
-    registered_by_user_id: str = ""
-    registered_at: str = ""
-    unreadable_error: str = ""
-
-
-class TelegramApiClient:
-    def __init__(self, token: str) -> None:
-        self.token = token
-
-    def get_me(self) -> dict[str, Any]:
-        return self._api("getMe")
-
-    def get_updates(
-        self,
-        offset: int | None = None,
-        timeout: int | None = None,
-        limit: int | None = 100,
-    ) -> dict[str, Any]:
-        params: dict[str, str | int] = {}
-        if offset is not None:
-            params["offset"] = offset
-        if timeout is not None:
-            params["timeout"] = timeout
-        if limit is not None:
-            params["limit"] = limit
-        request_timeout = (timeout + 5) if timeout is not None else 15
-        return self._api("getUpdates", params, request_timeout=request_timeout)
-
-    def get_file(self, file_id: str) -> dict[str, Any]:
-        payload = self._api("getFile", {"file_id": file_id})
-        result = payload.get("result")
-        return result if isinstance(result, dict) else {}
-
-    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
-        params = {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}
-        if reply_markup is not None:
-            params["reply_markup"] = dumps(reply_markup)
-        return self._api(
-            "sendMessage",
-            params,
-            method="POST",
-        )
-
-    def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
-        params = {"callback_query_id": callback_query_id}
-        if text:
-            params["text"] = text
-        self._api("answerCallbackQuery", params, method="POST")
-
-    def get_my_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
-        params: dict[str, str] = {}
-        if scope is not None:
-            params["scope"] = dumps(scope)
-        payload = self._api("getMyCommands", params)
-        result = payload.get("result")
-        if not isinstance(result, list):
-            return []
-        commands: list[dict[str, str]] = []
-        for item in result:
-            if not isinstance(item, dict):
-                continue
-            commands.append(
-                {
-                    "command": str(item.get("command") or ""),
-                    "description": str(item.get("description") or ""),
-                }
-            )
-        return commands
-
-    def set_my_commands(self, commands: list[dict[str, str]], scope: dict[str, str] | None = None) -> None:
-        params = {"commands": dumps(commands)}
-        if scope is not None:
-            params["scope"] = dumps(scope)
-        self._api("setMyCommands", params, method="POST")
-
-    def download_file(self, file_path: str, destination: Path) -> None:
-        if not self.token:
-            raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
-        req = Request(url, method="GET")
-        with urlopen(req, timeout=30) as resp:
-            destination.write_bytes(resp.read())
-
-    def _api(
-        self,
-        method_name: str,
-        params: dict[str, str | int] | None = None,
-        method: str = "GET",
-        request_timeout: int = 15,
-    ) -> dict[str, Any]:
-        if not self.token:
-            raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
-        params = params or {}
-        url = f"https://api.telegram.org/bot{self.token}/{method_name}"
-        data = None
-        if method == "GET":
-            if params:
-                url = f"{url}?{urlencode(params)}"
-        else:
-            data = urlencode(params).encode("utf-8")
-        req = Request(url, data=data, method=method)
-        with urlopen(req, timeout=request_timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(payload, dict) or not payload.get("ok"):
-            raise RuntimeError(f"Telegram API failed: {payload}")
-        return payload
+from darchivebot.ports import TelegramStore
+from darchivebot.telegram_api import TelegramApiClient
+from darchivebot.telegram_messages import (
+    caption_or_text_mentions_screenshot,
+    chat_display_name,
+    command_argument,
+    content_kind_for_message,
+    extract_attachments,
+    is_capturable_message,
+    object_value,
+    parse_command,
+    safe_file_name,
+    user_display_name,
+)
+from darchivebot.telegram_prompts import (
+    choice_label,
+    format_prompt_message,
+    inline_keyboard_for_prompt,
+    parse_prompt_callback_data,
+    prompt_callback_data,
+    prompt_choices,
+    send_bot_prompt,
+)
+from darchivebot.telegram_rooms import (
+    DEFAULT_BOT_COMMANDS,
+    REGISTERED_CHAT_BOT_COMMANDS,
+    REGISTER_CHAT_ROOM_COMMAND,
+    TelegramChatCandidate,
+    TelegramRoomState,
+    allowed_chat_ids,
+    chat_command_scope,
+    command_menu_is_synced,
+    discover_chat_candidates,
+    format_rooms_report,
+    mask_identifier,
+    read_registered_chat_id,
+    read_room_state,
+)
 
 
 class TelegramCaptureBot:
     def __init__(
         self,
         settings: Settings,
-        store: ArchiveStore,
+        store: TelegramStore,
         api: TelegramApiClient | None = None,
     ) -> None:
         if not settings.telegram_bot_token:
@@ -390,308 +296,6 @@ class TelegramCaptureBot:
         if allowed:
             return chat_id in allowed
         return self.settings.telegram_allow_all_chats
-
-
-def extract_attachments(message: dict[str, Any]) -> list[dict[str, Any]]:
-    attachments: list[dict[str, Any]] = []
-    photos = message.get("photo")
-    if isinstance(photos, list) and photos:
-        candidates = [item for item in photos if isinstance(item, dict)]
-        if candidates:
-            selected = max(candidates, key=lambda item: int(item.get("file_size") or 0))
-            attachments.append(
-                {
-                    "kind": "photo",
-                    "file_id": str(selected.get("file_id") or ""),
-                    "file_unique_id": str(selected.get("file_unique_id") or ""),
-                    "file_size": int(selected.get("file_size") or 0),
-                    "mime_type": "image/jpeg",
-                    "file_name": "photo.jpg",
-                }
-            )
-    document = message.get("document")
-    if isinstance(document, dict):
-        attachments.append(
-            {
-                "kind": "document",
-                "file_id": str(document.get("file_id") or ""),
-                "file_unique_id": str(document.get("file_unique_id") or ""),
-                "file_size": int(document.get("file_size") or 0),
-                "mime_type": str(document.get("mime_type") or ""),
-                "file_name": str(document.get("file_name") or "document"),
-            }
-        )
-    return [item for item in attachments if item["file_id"]]
-
-
-SERVICE_MESSAGE_KEYS = {
-    "new_chat_member",
-    "new_chat_members",
-    "new_chat_participant",
-    "left_chat_member",
-    "left_chat_participant",
-    "pinned_message",
-    "group_chat_created",
-    "supergroup_chat_created",
-    "channel_chat_created",
-    "message_auto_delete_timer_changed",
-    "migrate_to_chat_id",
-    "migrate_from_chat_id",
-    "forum_topic_created",
-    "forum_topic_edited",
-    "forum_topic_closed",
-    "forum_topic_reopened",
-    "video_chat_scheduled",
-    "video_chat_started",
-    "video_chat_ended",
-    "video_chat_participants_invited",
-}
-
-
-def is_capturable_message(message: dict[str, Any]) -> bool:
-    if any(key in message for key in SERVICE_MESSAGE_KEYS):
-        return False
-    text = str(message.get("text") or "").strip()
-    caption = str(message.get("caption") or "").strip()
-    return bool(text or caption or extract_attachments(message))
-
-
-def content_kind_for_message(text: str, caption: str, attachments: list[dict[str, Any]]) -> str:
-    kinds = {item["kind"] for item in attachments}
-    if "photo" in kinds:
-        return "screenshot" if caption_or_text_mentions_screenshot(text, caption) else "photo"
-    if "document" in kinds:
-        return "document"
-    return "text"
-
-
-def caption_or_text_mentions_screenshot(text: str, caption: str) -> bool:
-    haystack = f"{text} {caption}".lower()
-    return any(token in haystack for token in ("screenshot", "screen shot", "capture", "캡처", "스크린샷"))
-
-
-def parse_command(text: str) -> str:
-    stripped = text.strip()
-    if not stripped.startswith("/"):
-        return ""
-    return stripped.split(maxsplit=1)[0].split("@", 1)[0]
-
-
-def command_argument(text: str) -> str:
-    stripped = text.strip()
-    parts = stripped.split(maxsplit=1)
-    return parts[1].strip().lower() if len(parts) > 1 else ""
-
-
-def read_room_state(settings: Settings) -> TelegramRoomState:
-    path = settings.state_dir / "telegram_rooms.json"
-    if not path.exists():
-        return TelegramRoomState()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return TelegramRoomState(unreadable_error=str(exc))
-    if not isinstance(payload, dict):
-        return TelegramRoomState(unreadable_error="telegram room state is not a JSON object")
-    return TelegramRoomState(
-        darchive_chat_id=str(payload.get("darchive_chat_id") or "").strip(),
-        darchive_chat_title=str(payload.get("darchive_chat_title") or "").strip(),
-        darchive_chat_type=str(payload.get("darchive_chat_type") or "").strip(),
-        registered_by_user_id=str(payload.get("registered_by_user_id") or "").strip(),
-        registered_at=str(payload.get("registered_at") or "").strip(),
-    )
-
-
-def read_registered_chat_id(settings: Settings) -> str:
-    return read_room_state(settings).darchive_chat_id
-
-
-def allowed_chat_ids(settings: Settings) -> set[str]:
-    allowed = set(settings.telegram_allowed_chat_ids)
-    registered = read_registered_chat_id(settings)
-    if registered:
-        allowed.add(registered)
-    return allowed
-
-
-def chat_command_scope(chat_id: str) -> dict[str, str]:
-    return {"type": "chat", "chat_id": chat_id}
-
-
-def command_menu_is_synced(commands: list[dict[str, str]], expected: list[dict[str, str]]) -> bool:
-    normalized = [
-        {
-            "command": str(item.get("command") or ""),
-            "description": str(item.get("description") or ""),
-        }
-        for item in commands
-    ]
-    return normalized == expected
-
-
-def format_rooms_report(settings: Settings) -> tuple[int, str]:
-    state = read_room_state(settings)
-    if state.unreadable_error:
-        return 1, f"[FAIL] telegram room state is unreadable: {state.unreadable_error}"
-    lines: list[str] = []
-    if state.darchive_chat_id:
-        lines.extend(
-            [
-                f"darchive_chat_id={mask_identifier(state.darchive_chat_id)}",
-                f"title={state.darchive_chat_title or '(empty)'}",
-                f"type={state.darchive_chat_type or '(empty)'}",
-                f"registered_by_user_id={mask_identifier(state.registered_by_user_id) if state.registered_by_user_id else '(empty)'}",
-                f"registered_at={state.registered_at or '(empty)'}",
-                f"allowed={'yes' if state.darchive_chat_id in allowed_chat_ids(settings) else 'no'}",
-            ]
-        )
-    else:
-        lines.append(f"[WARN] darchive_chat_id is not registered; send {REGISTER_CHAT_ROOM_COMMAND} in the Telegram chat")
-    if settings.telegram_allowed_chat_ids:
-        lines.append(f"env_allowed_chat_ids={','.join(mask_identifier(item) for item in settings.telegram_allowed_chat_ids)}")
-    elif settings.telegram_allow_all_chats:
-        lines.append("[WARN] DARCHIVE_ALLOW_ALL_CHATS=true; every chat can use the bot")
-    else:
-        lines.append("env_allowed_chat_ids=(empty)")
-    return 0, "\n".join(lines)
-
-
-def mask_identifier(value: str) -> str:
-    raw = str(value or "")
-    if len(raw) <= 4:
-        return "***"
-    return f"***{raw[-4:]}"
-
-
-def discover_chat_candidates(payload: dict[str, Any]) -> list[TelegramChatCandidate]:
-    result = payload.get("result", [])
-    if not isinstance(result, list):
-        return []
-    candidates: list[TelegramChatCandidate] = []
-    seen: set[str] = set()
-    for update in result:
-        if not isinstance(update, dict):
-            continue
-        for key in ("message", "edited_message", "channel_post", "edited_channel_post", "my_chat_member", "chat_member"):
-            event = update.get(key)
-            if not isinstance(event, dict):
-                continue
-            chat = event.get("chat")
-            if not isinstance(chat, dict):
-                continue
-            raw_chat_id = chat.get("id")
-            if raw_chat_id is None:
-                continue
-            chat_id = str(raw_chat_id)
-            if chat_id in seen:
-                continue
-            seen.add(chat_id)
-            candidates.append(
-                TelegramChatCandidate(
-                    chat_id=chat_id,
-                    title=chat_display_name(chat),
-                    chat_type=str(chat.get("type") or ""),
-                )
-            )
-    return candidates
-
-
-def object_value(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def chat_display_name(chat: dict[str, Any]) -> str:
-    return str(chat.get("title") or chat.get("username") or chat.get("first_name") or chat.get("type") or chat.get("id") or "")
-
-
-def user_display_name(user: dict[str, Any]) -> str:
-    parts = [str(user.get("first_name") or ""), str(user.get("last_name") or "")]
-    name = " ".join(part for part in parts if part).strip()
-    return name or str(user.get("username") or user.get("id") or "")
-
-
-def safe_file_name(value: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in {".", "-", "_"} else "_" for ch in value)
-    return cleaned[:180] or "file"
-
-
-def send_bot_prompt(api: TelegramApiClient, store: ArchiveStore, prompt: dict[str, Any]) -> dict[str, Any]:
-    if str(prompt.get("status") or "pending") != "pending":
-        return {
-            "prompt_id": str(prompt["id"]),
-            "chat_id": str(prompt["chat_id"]),
-            "message_id": str(prompt.get("telegram_message_id") or ""),
-            "status": "skipped",
-            "reason": f"prompt is already {prompt.get('status')}",
-        }
-    text = format_prompt_message(prompt)
-    reply_markup = inline_keyboard_for_prompt(prompt)
-    payload = api.send_message(str(prompt["chat_id"]), text, reply_markup=reply_markup)
-    message_id = ""
-    result = payload.get("result") if isinstance(payload, dict) else None
-    if isinstance(result, dict):
-        message_id = str(result.get("message_id") or "")
-    store.mark_bot_prompt_sent(str(prompt["id"]), telegram_message_id=message_id)
-    return {"prompt_id": str(prompt["id"]), "chat_id": str(prompt["chat_id"]), "message_id": message_id, "status": "sent"}
-
-
-def format_prompt_message(prompt: dict[str, Any]) -> str:
-    parts = [
-        str(prompt.get("title") or "Darchive prompt"),
-        "",
-        str(prompt.get("body") or ""),
-    ]
-    recommended = str(prompt.get("recommended_action") or "").strip()
-    if recommended:
-        parts.extend(["", recommended])
-    return "\n".join(parts).strip()[:3500]
-
-
-def inline_keyboard_for_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
-    buttons = []
-    for choice in prompt.get("choices") or []:
-        choice_id = str(choice.get("choice") or "")
-        label = str(choice.get("label") or choice_id)
-        if not choice_id:
-            continue
-        buttons.append({"text": label, "callback_data": prompt_callback_data(str(prompt["id"]), choice_id)})
-    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    return {"inline_keyboard": rows}
-
-
-def prompt_callback_data(prompt_id: str, choice: str) -> str:
-    return f"dai:{prompt_id}:{choice}"[:64]
-
-
-def parse_prompt_callback_data(value: str) -> tuple[str, str] | None:
-    if not value.startswith("dai:"):
-        return None
-    parts = value.split(":", 2)
-    if len(parts) != 3 or not parts[1] or not parts[2]:
-        return None
-    return parts[1], parts[2]
-
-
-def prompt_choices(prompt: Any) -> list[dict[str, str]]:
-    raw = prompt["choices_json"] if hasattr(prompt, "keys") and "choices_json" in prompt.keys() else "[]"
-    try:
-        payload = json.loads(str(raw or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [
-        {"choice": str(item.get("choice") or ""), "label": str(item.get("label") or "")}
-        for item in payload
-        if isinstance(item, dict) and str(item.get("choice") or "").strip()
-    ]
-
-
-def choice_label(choices: list[dict[str, str]], choice: str) -> str:
-    for item in choices:
-        if item["choice"] == choice:
-            return item["label"] or choice
-    return choice
 
 
 def build_logger(settings: Settings) -> logging.Logger:

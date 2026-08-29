@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-import json
 from collections import Counter
 from typing import Any
 
-from darchivebot.storage import ArchiveStore
+from darchivebot.archive_values import (
+    clean,
+    confidence,
+    json_string_list as json_list,
+    semantic_string_list as semantic_json_list,
+)
+from darchivebot.models import ArchiveItemRecord, ProcessingRunRecord
+from darchivebot.ports import AnalysisStore
 
 
 ISSUE_SPECS = [
@@ -35,7 +41,7 @@ ISSUE_SPECS = [
 ISSUE_NAMES = [name for name, _label, _predicate in ISSUE_SPECS]
 
 
-def interest_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
+def interest_summary(store: AnalysisStore, *, limit: int = 20) -> dict[str, Any]:
     rows = store.list_archive_items_for_graph()
     primary = Counter[str]()
     secondary = Counter[str]()
@@ -58,7 +64,7 @@ def interest_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
     return {"archive_items": len(rows), "interests": interests}
 
 
-def concept_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
+def concept_summary(store: AnalysisStore, *, limit: int = 20) -> dict[str, Any]:
     rows = store.list_archive_items_for_graph()
     counts = Counter[str]()
     for row in rows:
@@ -70,7 +76,7 @@ def concept_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
     return {"archive_items": len(rows), "concepts": concepts}
 
 
-def graph_quality_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, Any]:
+def graph_quality_summary(store: AnalysisStore, *, limit: int = 20) -> dict[str, Any]:
     rows = store.list_archive_items_for_graph()
     issues = []
     for name, _label, predicate in ISSUE_SPECS:
@@ -93,7 +99,7 @@ def graph_quality_summary(store: ArchiveStore, *, limit: int = 20) -> dict[str, 
 
 
 def reprocess_plan(
-    store: ArchiveStore,
+    store: AnalysisStore,
     *,
     limit: int = 20,
     issue: str = "",
@@ -134,7 +140,11 @@ def reprocess_plan(
     }
 
 
-def reprocess_candidate(row: Any, reasons: list[dict[str, str]], history: list[Any]) -> dict[str, Any]:
+def reprocess_candidate(
+    row: ArchiveItemRecord,
+    reasons: list[dict[str, str]],
+    history: list[ProcessingRunRecord],
+) -> dict[str, Any]:
     visible_history = history[:5]
     return {
         "capture_id": str(row["capture_id"]),
@@ -162,7 +172,7 @@ def reprocess_candidate(row: Any, reasons: list[dict[str, str]], history: list[A
     }
 
 
-def candidate_reasons(row: Any) -> list[dict[str, str]]:
+def candidate_reasons(row: ArchiveItemRecord) -> list[dict[str, str]]:
     return [
         {"name": name, "label": label}
         for name, label, predicate in ISSUE_SPECS
@@ -170,7 +180,7 @@ def candidate_reasons(row: Any) -> list[dict[str, str]]:
     ]
 
 
-def related_captures(store: ArchiveStore, capture_id: str, *, limit: int = 10) -> dict[str, Any] | None:
+def related_captures(store: AnalysisStore, capture_id: str, *, limit: int = 10) -> dict[str, Any] | None:
     rows = store.list_archive_items_for_graph()
     target = next((row for row in rows if str(row["capture_id"]) == capture_id or str(row["id"]) == capture_id), None)
     if target is None:
@@ -186,7 +196,7 @@ def related_captures(store: ArchiveStore, capture_id: str, *, limit: int = 10) -
     return {"capture_id": str(target["capture_id"]), "archive_item_id": str(target["id"]), "related": matches[:limit]}
 
 
-def related_match(source: Any, candidate: Any) -> dict[str, Any]:
+def related_match(source: ArchiveItemRecord, candidate: ArchiveItemRecord) -> dict[str, Any]:
     source_interests = interest_set(source)
     candidate_interests = interest_set(candidate)
     source_topics = topic_set(source)
@@ -225,7 +235,7 @@ def related_match(source: Any, candidate: Any) -> dict[str, Any]:
     }
 
 
-def interest_set(row: Any) -> set[str]:
+def interest_set(row: ArchiveItemRecord) -> set[str]:
     values = set(json_list(row["secondary_interests_json"]))
     primary = clean(row["primary_interest"])
     if primary:
@@ -233,11 +243,11 @@ def interest_set(row: Any) -> set[str]:
     return values
 
 
-def topic_set(row: Any) -> set[str]:
+def topic_set(row: ArchiveItemRecord) -> set[str]:
     return {value for value in (clean(row["topic"]), clean(row["subtopic"])) if value}
 
 
-def quality_item(row: Any) -> dict[str, str]:
+def quality_item(row: ArchiveItemRecord) -> dict[str, str]:
     return {
         "capture_id": str(row["capture_id"]),
         "archive_item_id": str(row["id"]),
@@ -245,45 +255,5 @@ def quality_item(row: Any) -> dict[str, str]:
     }
 
 
-def is_fallback_processed(row: Any) -> bool:
+def is_fallback_processed(row: ArchiveItemRecord) -> bool:
     return "local fallback" in clean(row["classification_reason"]).lower()
-
-
-def confidence(row: Any) -> float:
-    try:
-        return float(row["confidence"] or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def raw_json_list(row: Any, key: str) -> list[str]:
-    try:
-        payload = json.loads(str(row["raw_codex_json"] or "{}"))
-    except json.JSONDecodeError:
-        return []
-    value = payload.get(key)
-    if not isinstance(value, list):
-        return []
-    return [clean(item) for item in value if clean(item)]
-
-
-def semantic_json_list(row: Any, column: str, raw_key: str) -> list[str]:
-    if column in row.keys():
-        normalized = json_list(row[column])
-        if normalized:
-            return normalized
-    return raw_json_list(row, raw_key)
-
-
-def json_list(value: Any) -> list[str]:
-    try:
-        payload = json.loads(str(value or "[]"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-    return [clean(item) for item in payload if clean(item)]
-
-
-def clean(value: Any) -> str:
-    return str(value or "").strip()
