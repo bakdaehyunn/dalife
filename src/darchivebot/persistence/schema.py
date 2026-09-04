@@ -176,6 +176,224 @@ CREATE TABLE IF NOT EXISTS bot_prompt_events (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS areas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL UNIQUE,
+  parent_area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  center_latitude REAL,
+  center_longitude REAL,
+  radius_meters INTEGER,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS places (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_place_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  category TEXT,
+  address TEXT,
+  road_address TEXT,
+  phone TEXT,
+  map_url TEXT,
+  area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  latitude REAL,
+  longitude REAL,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(provider, provider_place_id)
+);
+
+CREATE TABLE IF NOT EXISTS evidence_items (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  external_id TEXT,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  snippet TEXT NOT NULL,
+  author TEXT,
+  published_at TEXT,
+  collected_at TEXT NOT NULL,
+  query_text TEXT,
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(provider, url)
+);
+
+CREATE TABLE IF NOT EXISTS place_evidence (
+  id TEXT PRIMARY KEY,
+  place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  evidence_item_id TEXT NOT NULL REFERENCES evidence_items(id) ON DELETE CASCADE,
+  match_type TEXT NOT NULL,
+  score REAL NOT NULL,
+  matched_terms_json TEXT NOT NULL DEFAULT '[]',
+  decision TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(place_id, evidence_item_id)
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+  id TEXT PRIMARY KEY,
+  tag_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(tag_type, normalized_name)
+);
+
+CREATE TABLE IF NOT EXISTS place_tags (
+  place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(place_id, tag_id, source)
+);
+
+CREATE TABLE IF NOT EXISTS query_ledger (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  query_text TEXT NOT NULL,
+  area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  facet TEXT NOT NULL DEFAULT '',
+  sort_mode TEXT NOT NULL DEFAULT '',
+  page INTEGER NOT NULL DEFAULT 1,
+  quota_cost INTEGER NOT NULL DEFAULT 1,
+  yielded_count INTEGER NOT NULL DEFAULT 0,
+  failure_reason TEXT NOT NULL DEFAULT '',
+  last_run_at TEXT,
+  next_run_at TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(domain, provider, query_text, facet, sort_mode, page)
+);
+
+CREATE TABLE IF NOT EXISTS query_ledger_runs (
+  id TEXT PRIMARY KEY,
+  ledger_id TEXT NOT NULL REFERENCES query_ledger(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  quota_cost INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  yielded_count INTEGER NOT NULL DEFAULT 0,
+  failure_reason TEXT NOT NULL DEFAULT '',
+  run_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS routines (
+  id TEXT PRIMARY KEY,
+  routine_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  routine_id TEXT REFERENCES routines(id) ON DELETE SET NULL,
+  reminder_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  cadence TEXT NOT NULL,
+  schedule_json TEXT NOT NULL DEFAULT '{}',
+  action TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  requires_confirmation INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  setting_key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reminder_events (
+  id TEXT PRIMARY KEY,
+  reminder_id TEXT NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+  event_key TEXT NOT NULL UNIQUE,
+  due_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  telegram_message_id TEXT,
+  response_payload_json TEXT NOT NULL DEFAULT '{}',
+  sent_at TEXT,
+  responded_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_sessions (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  request_text TEXT NOT NULL,
+  area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  context_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_candidates (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES recommendation_sessions(id) ON DELETE CASCADE,
+  place_id TEXT REFERENCES places(id) ON DELETE SET NULL,
+  rank INTEGER,
+  score REAL NOT NULL DEFAULT 0.0,
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+  evidence_tier TEXT NOT NULL,
+  explanation TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_feedback (
+  id TEXT PRIMARY KEY,
+  feedback_key TEXT NOT NULL UNIQUE,
+  domain TEXT NOT NULL,
+  action TEXT NOT NULL,
+  place_id TEXT REFERENCES places(id) ON DELETE SET NULL,
+  reminder_event_id TEXT REFERENCES reminder_events(id) ON DELETE SET NULL,
+  recommendation_session_id TEXT REFERENCES recommendation_sessions(id) ON DELETE SET NULL,
+  course_plan_id TEXT REFERENCES course_plans(id) ON DELETE SET NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS course_plans (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  area_id TEXT REFERENCES areas(id) ON DELETE SET NULL,
+  context_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  feedback_summary TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS course_plan_stops (
+  id TEXT PRIMARY KEY,
+  course_plan_id TEXT NOT NULL REFERENCES course_plans(id) ON DELETE CASCADE,
+  stop_order INTEGER NOT NULL,
+  source_domain TEXT NOT NULL,
+  title TEXT NOT NULL,
+  place_id TEXT REFERENCES places(id) ON DELETE SET NULL,
+  reminder_event_id TEXT REFERENCES reminder_events(id) ON DELETE SET NULL,
+  archive_item_id TEXT REFERENCES archive_items(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  starts_at TEXT,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  UNIQUE(course_plan_id, stop_order)
+);
+
 CREATE INDEX IF NOT EXISTS idx_captures_status_created ON captures(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_capture_files_capture_id ON capture_files(capture_id);
 CREATE INDEX IF NOT EXISTS idx_processing_runs_capture_id ON processing_runs(capture_id);
@@ -185,6 +403,16 @@ CREATE INDEX IF NOT EXISTS idx_insight_note_items_archive_item_id ON insight_not
 CREATE INDEX IF NOT EXISTS idx_bot_prompts_status_created ON bot_prompts(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_bot_prompts_capture ON bot_prompts(capture_id);
 CREATE INDEX IF NOT EXISTS idx_bot_prompt_events_prompt ON bot_prompt_events(prompt_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_places_area ON places(area_id, normalized_name);
+CREATE INDEX IF NOT EXISTS idx_evidence_items_collected ON evidence_items(provider, collected_at);
+CREATE INDEX IF NOT EXISTS idx_place_evidence_place ON place_evidence(place_id, score);
+CREATE INDEX IF NOT EXISTS idx_query_ledger_due ON query_ledger(domain, provider, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_query_ledger_runs_provider_time ON query_ledger_runs(provider, run_at);
+CREATE INDEX IF NOT EXISTS idx_reminder_events_due ON reminder_events(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_recommendation_sessions_created ON recommendation_sessions(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_recommendation_candidates_session ON recommendation_candidates(session_id, rank);
+CREATE INDEX IF NOT EXISTS idx_user_feedback_domain_created ON user_feedback(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_course_plan_stops_plan ON course_plan_stops(course_plan_id, stop_order);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS archive_search_fts USING fts5(
   archive_item_id UNINDEXED,
@@ -201,4 +429,3 @@ CREATE VIRTUAL TABLE IF NOT EXISTS archive_search_fts USING fts5(
   tokenize = 'unicode61'
 );
 """
-

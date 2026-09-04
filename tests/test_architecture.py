@@ -70,3 +70,20 @@ def test_archive_store_is_a_thin_sql_free_compatibility_facade():
     for sql_keyword in ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "CREATE TABLE"):
         assert sql_keyword not in source
 
+
+def test_personal_context_domain_packages_are_importable():
+    import darchivebot.domains as domains
+    from darchivebot.domains.course import CoursePlan, CourseStop
+    from darchivebot.domains.food import EvidenceTier, FoodEvidence, FoodPlace, FoodRecommendationContext
+    from darchivebot.domains.life import LifeConfirmation, LifeReminder, ReminderCadence
+
+    assert domains.DOMAIN_NAMES == ("archive", "food", "life", "course")
+    assert EvidenceTier.VERIFIED.value == "verified"
+    assert FoodEvidence(provider="naver", url="https://example.test").provider == "naver"
+    assert FoodPlace(name="A", provider_place_id="1", provider="kakao").evidence_tier == EvidenceTier.CANDIDATE
+    assert FoodRecommendationContext(area="Itaewon", topic="dinner").count == 30
+    assert ReminderCadence.WEEKLY.value == "weekly"
+    assert LifeReminder("trash", "Trash", ReminderCadence.WEEKLY, "take out", "20:00").enabled
+    assert LifeConfirmation
+    assert CourseStop
+    assert CoursePlan

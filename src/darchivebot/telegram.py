@@ -9,11 +9,21 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from darchivebot.config import Settings
+from darchivebot.domains.life import apply_life_callback, parse_life_callback_data
 from darchivebot.json_utils import dumps
 from darchivebot.ports import TelegramStore
 from darchivebot.telegram_api import TelegramApiClient
+from darchivebot.telegram_intents import TelegramIntent, classify_telegram_update
+from darchivebot.telegram_food import (
+    apply_food_feedback_callback,
+    parse_food_feedback_callback,
+    recommend_food_for_telegram,
+)
+from darchivebot.telegram_course import plan_course_for_telegram
+from darchivebot.telegram_life import upcoming_life_for_telegram
 from darchivebot.telegram_messages import (
     caption_or_text_mentions_screenshot,
     chat_display_name,
@@ -85,6 +95,7 @@ class TelegramCaptureBot:
         return result if isinstance(result, list) else []
 
     def handle_update(self, update: dict[str, Any]) -> str | None:
+        intent = classify_telegram_update(update)
         callback_query = update.get("callback_query")
         if isinstance(callback_query, dict):
             self.handle_callback_query(callback_query)
@@ -105,7 +116,25 @@ class TelegramCaptureBot:
             return None
         if not self.is_allowed(chat_id):
             return None
-        if not is_capturable_message(message):
+        if (
+            self.settings.native_personal_telegram_enabled
+            and intent.intent == TelegramIntent.FOOD_RECOMMENDATION
+        ):
+            self.handle_food_recommendation(chat_id, text)
+            return None
+        if (
+            self.settings.native_personal_telegram_enabled
+            and intent.intent == TelegramIntent.COURSE_PLANNING
+        ):
+            self.handle_course_planning(chat_id, text)
+            return None
+        if (
+            self.settings.native_personal_telegram_enabled
+            and intent.intent == TelegramIntent.LIFE_REMINDER
+        ):
+            self.handle_life_query(chat_id, text)
+            return None
+        if intent.intent == TelegramIntent.IGNORE or not is_capturable_message(message):
             return None
         return self.capture_message(message)
 
@@ -117,6 +146,23 @@ class TelegramCaptureBot:
         chat_id = str(chat.get("id") or "")
         user = object_value(callback_query.get("from"))
         user_id = str(user.get("id") or "")
+        if parse_food_feedback_callback(data):
+            self.handle_food_feedback_callback(
+                callback_id=callback_id,
+                data=data,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+            return
+        if parse_life_callback_data(data):
+            self.handle_life_callback(
+                callback_id=callback_id,
+                data=data,
+                chat_id=chat_id,
+                user_id=user_id,
+                message=message,
+            )
+            return
         parsed = parse_prompt_callback_data(data)
         if not parsed:
             self.answer_callback(callback_id, "Unknown choice")
@@ -146,6 +192,97 @@ class TelegramCaptureBot:
         self.answer_callback(callback_id, f"Saved: {label}")
         if row is not None:
             self.logger.info("bot prompt choice prompt_id=%s choice=%s user_id=%s", prompt_id, choice, user_id)
+
+    def handle_food_recommendation(self, chat_id: str, text: str) -> None:
+        result = recommend_food_for_telegram(self.store, text)
+        for message in result.messages:
+            self.api.send_message(chat_id, message.text, reply_markup=message.reply_markup)
+        self.logger.info(
+            "food recommendation chat_id=%s session_id=%s returned=%s",
+            chat_id,
+            result.session_id,
+            result.returned_count,
+        )
+
+    def handle_course_planning(self, chat_id: str, text: str) -> None:
+        response = plan_course_for_telegram(
+            self.store,
+            text,
+            now=datetime.now(ZoneInfo(self.settings.life_timezone)),
+        )
+        self.api.send_message(chat_id, response)
+        self.logger.info("course plan chat_id=%s", chat_id)
+
+    def handle_life_query(self, chat_id: str, text: str) -> None:
+        response = upcoming_life_for_telegram(
+            self.store,
+            text,
+            now=datetime.now(ZoneInfo(self.settings.life_timezone)),
+        )
+        self.api.send_message(chat_id, response)
+        self.logger.info("life query chat_id=%s", chat_id)
+
+    def handle_food_feedback_callback(
+        self,
+        *,
+        callback_id: str,
+        data: str,
+        chat_id: str,
+        user_id: str,
+    ) -> None:
+        if not self.settings.native_personal_telegram_enabled:
+            self.answer_callback(callback_id, "Food feedback is not enabled")
+            return
+        if chat_id and not self.is_allowed(chat_id):
+            self.answer_callback(callback_id, "Chat is not allowed")
+            return
+        answer = apply_food_feedback_callback(
+            self.store,
+            data,
+            callback_query_id=callback_id,
+        )
+        if answer is None:
+            self.answer_callback(callback_id, "Recommendation not found")
+            return
+        self.answer_callback(callback_id, answer)
+        self.logger.info("food feedback callback=%s user_id=%s", data, user_id)
+
+    def handle_life_callback(
+        self,
+        *,
+        callback_id: str,
+        data: str,
+        chat_id: str,
+        user_id: str,
+        message: dict[str, Any],
+    ) -> None:
+        if chat_id and not self.is_allowed(chat_id):
+            self.answer_callback(callback_id, "Chat is not allowed")
+            return
+        result = apply_life_callback(
+            self.store,
+            data,
+            responded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            callback_query_id=callback_id,
+            chat_id=chat_id,
+            user_id=user_id,
+        )
+        if result is None:
+            self.answer_callback(callback_id, "Reminder action not found")
+            return
+        self.answer_callback(callback_id, result.answer_text)
+        message_id = message.get("message_id")
+        if chat_id and isinstance(message_id, int):
+            try:
+                self.api.edit_message_reply_markup(chat_id, message_id)
+            except Exception:
+                self.logger.exception("failed to clear life reminder keyboard")
+        self.logger.info(
+            "life reminder response event_id=%s action=%s user_id=%s",
+            result.event["id"],
+            result.action,
+            user_id,
+        )
 
     def answer_callback(self, callback_id: str, text: str) -> None:
         if not callback_id:

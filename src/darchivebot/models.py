@@ -74,3 +74,67 @@ class InsightNoteRecord(Record):
 class InsightEvidenceRecord(Record):
     pass
 
+
+@dataclass(frozen=True)
+class AreaRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class PlaceRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class EvidenceItemRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class PlaceEvidenceRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class QueryLedgerRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class RoutineRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class ReminderRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class ReminderEventRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class CoursePlanRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class CoursePlanStopRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class UserFeedbackRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class RecommendationSessionRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class RecommendationCandidateRecord(Record):
+    pass

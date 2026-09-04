@@ -161,6 +161,35 @@ def migrate_db(conn: sqlite3.Connection) -> None:
                 if "duplicate column name" not in str(exc).lower():
                     raise
     conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_retry ON captures(status, next_retry_at, created_at)")
+    evidence_columns = {row["name"] for row in conn.execute("PRAGMA table_info(evidence_items)")}
+    if evidence_columns and "area_id" not in evidence_columns:
+        try:
+            conn.execute("ALTER TABLE evidence_items ADD COLUMN area_id TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    if evidence_columns:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evidence_items_area ON evidence_items(area_id, collected_at)"
+        )
+    query_ledger_columns = {row["name"] for row in conn.execute("PRAGMA table_info(query_ledger)")}
+    if query_ledger_columns:
+        conn.execute(
+            """
+            DELETE FROM query_ledger
+            WHERE rowid NOT IN (
+              SELECT MAX(rowid)
+              FROM query_ledger
+              GROUP BY domain, provider, query_text, facet, sort_mode, page
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_query_ledger_identity
+            ON query_ledger(domain, provider, query_text, facet, sort_mode, page)
+            """
+        )
     backfill_archive_semantic_json(conn)
     if archive_search_count(conn) != archive_item_count(conn):
         rebuild_search_index_conn(conn)
@@ -186,4 +215,3 @@ def backfill_archive_semantic_json(conn: sqlite3.Connection) -> None:
                 f"UPDATE archive_items SET {assignments} WHERE id = ?",
                 (*updates.values(), row["id"]),
             )
-

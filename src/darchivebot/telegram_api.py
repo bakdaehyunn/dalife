@@ -53,6 +53,16 @@ class TelegramApiClient:
             params["text"] = text
         self._api("answerCallbackQuery", params, method="POST")
 
+    def edit_message_reply_markup(
+        self,
+        chat_id: str,
+        message_id: int,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None:
+        params: dict[str, str | int] = {"chat_id": chat_id, "message_id": message_id}
+        params["reply_markup"] = dumps(reply_markup or {"inline_keyboard": []})
+        self._api("editMessageReplyMarkup", params, method="POST")
+
     def get_my_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
         params: dict[str, str] = {}
         if scope is not None:

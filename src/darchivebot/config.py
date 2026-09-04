@@ -12,17 +12,42 @@ DEFAULT_ENV_FILE = ROOT / ".env"
 
 def load_env(path: Path | None = None) -> None:
     env_path = path or Path(os.environ.get("DARCHIVE_ENV_FILE", DEFAULT_ENV_FILE))
-    if not env_path.exists():
-        return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+    for key, value in read_env_values(env_path).items():
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+def read_env_values(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+        if key:
+            values[key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def update_env_values(path: Path, updates: dict[str, str]) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    remaining = dict(updates)
+    updated_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        key = stripped.split("=", 1)[0].strip() if "=" in stripped and not stripped.startswith("#") else ""
+        if key in remaining:
+            updated_lines.append(f"{key}={remaining.pop(key)}")
+        else:
+            updated_lines.append(line)
+    if remaining and updated_lines and updated_lines[-1].strip():
+        updated_lines.append("")
+    updated_lines.extend(f"{key}={value}" for key, value in remaining.items())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
 
 
 def env_str(name: str, default: str = "") -> str:
@@ -99,6 +124,14 @@ class Settings:
     codex_timeout_sec: int
     processor_batch_size: int
     tesseract_bin: str
+    kakao_rest_api_key: str = ""
+    kakao_daily_soft_limit: int = 1000
+    naver_client_id: str = ""
+    naver_client_secret: str = ""
+    naver_daily_soft_limit: int = 100
+    food_blog_allowed_domains: tuple[str, ...] = ("blog.naver.com",)
+    native_personal_telegram_enabled: bool = False
+    life_timezone: str = "Asia/Seoul"
 
 
 def get_settings(root: Path = ROOT) -> Settings:
@@ -119,6 +152,19 @@ def get_settings(root: Path = ROOT) -> Settings:
         codex_timeout_sec=env_int("DARCHIVE_CODEX_TIMEOUT_SEC", 900),
         processor_batch_size=max(1, env_int("DARCHIVE_PROCESSOR_BATCH_SIZE", 10)),
         tesseract_bin=env_str("DARCHIVE_TESSERACT_BIN", "tesseract"),
+        kakao_rest_api_key=env_str("KAKAO_REST_API_KEY"),
+        kakao_daily_soft_limit=max(0, env_int("DARCHIVE_KAKAO_DAILY_SOFT_LIMIT", 1000)),
+        naver_client_id=env_str("NAVER_CLIENT_ID"),
+        naver_client_secret=env_str("NAVER_CLIENT_SECRET"),
+        naver_daily_soft_limit=max(0, env_int("DARCHIVE_NAVER_DAILY_SOFT_LIMIT", 100)),
+        food_blog_allowed_domains=tuple(
+            domain.lower()
+            for domain in env_tuple("DARCHIVE_FOOD_BLOG_ALLOWED_DOMAINS")
+            if domain.lower() != "tistory.com" and not domain.lower().endswith(".tistory.com")
+        )
+        or ("blog.naver.com",),
+        native_personal_telegram_enabled=env_bool("DARCHIVE_NATIVE_PERSONAL_TELEGRAM", False),
+        life_timezone=env_str("DARCHIVE_LIFE_TIMEZONE", "Asia/Seoul"),
     )
 
 

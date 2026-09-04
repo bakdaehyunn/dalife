@@ -5,9 +5,10 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from darchivebot.cli_formatting import mask_identifier
-from darchivebot.config import DEFAULT_ENV_FILE, Settings, ensure_local_dirs, get_settings
+from darchivebot.config import DEFAULT_ENV_FILE, Settings, ensure_local_dirs, get_settings, update_env_values
 from darchivebot.doctor import run_doctor
 from darchivebot.storage import ArchiveStore
 from darchivebot.telegram import TelegramApiClient, discover_chat_candidates
@@ -32,6 +33,11 @@ def setup_cmd_impl(
     telegram_admin_user_id: str | None,
     allow_all_chats: bool,
     install_launchd: bool,
+    timezone: str | None = None,
+    naver_client_id: str | None = None,
+    naver_client_secret: str | None = None,
+    kakao_rest_api_key: str | None = None,
+    codex_bin: str | None = None,
     env_file: Path,
     settings_loader: Any,
     doctor: Any,
@@ -58,6 +64,12 @@ def setup_cmd_impl(
         non_interactive=non_interactive,
     )
     chat_id = telegram_chat_id or ",".join(settings.telegram_allowed_chat_ids)
+    life_timezone = (timezone or settings.life_timezone).strip()
+    try:
+        ZoneInfo(life_timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        print(f"[FAIL] invalid timezone: {life_timezone}")
+        return 1
     if not chat_id and token:
         chat_id = discover_chat_for_setup(token, dry_run=dry_run, non_interactive=non_interactive)
     if not chat_id and not non_interactive:
@@ -80,6 +92,13 @@ def setup_cmd_impl(
             telegram_allowed_chat_ids=chat_id,
             telegram_admin_user_ids=admin_user_id,
             allow_all_chats=allow_all_chats,
+            life_timezone=life_timezone,
+            provider_values={
+                "NAVER_CLIENT_ID": naver_client_id,
+                "NAVER_CLIENT_SECRET": naver_client_secret,
+                "KAKAO_REST_API_KEY": kakao_rest_api_key,
+                "DARCHIVE_CODEX_BIN": codex_bin,
+            },
         )
 
     configured = settings_loader()
@@ -143,12 +162,15 @@ def write_setup_env(
     telegram_allowed_chat_ids: str,
     telegram_admin_user_ids: str,
     allow_all_chats: bool,
+    life_timezone: str,
+    provider_values: dict[str, str | None] | None = None,
 ) -> None:
     values = {
         "TELEGRAM_BOT_TOKEN": telegram_bot_token,
         "TELEGRAM_ALLOWED_CHAT_IDS": telegram_allowed_chat_ids,
         "TELEGRAM_ADMIN_USER_IDS": telegram_admin_user_ids,
         "DARCHIVE_ALLOW_ALL_CHATS": str(allow_all_chats).lower(),
+        "DARCHIVE_LIFE_TIMEZONE": life_timezone,
         "DARCHIVE_STATE_DIR": ".local/state",
         "DARCHIVE_LOG_DIR": ".local/logs",
         "DARCHIVE_MEDIA_DIR": ".local/captures",
@@ -161,24 +183,10 @@ def write_setup_env(
         "DARCHIVE_PROCESSOR_BATCH_SIZE": "10",
         "DARCHIVE_TESSERACT_BIN": "tesseract",
     }
-    env_file.write_text(
-        f"TELEGRAM_BOT_TOKEN={telegram_bot_token}\n"
-        f"TELEGRAM_ALLOWED_CHAT_IDS={telegram_allowed_chat_ids}\n"
-        f"TELEGRAM_ADMIN_USER_IDS={telegram_admin_user_ids}\n"
-        f"DARCHIVE_ALLOW_ALL_CHATS={str(allow_all_chats).lower()}\n"
-        "DARCHIVE_STATE_DIR=.local/state\n"
-        "DARCHIVE_LOG_DIR=.local/logs\n"
-        "DARCHIVE_MEDIA_DIR=.local/captures\n"
-        "DARCHIVE_CODEX_ENABLED=true\n"
-        "DARCHIVE_CODEX_BIN=codex\n"
-        "DARCHIVE_CODEX_MODEL=\n"
-        "DARCHIVE_CODEX_SANDBOX=read-only\n"
-        "DARCHIVE_CODEX_EPHEMERAL=true\n"
-        "DARCHIVE_CODEX_TIMEOUT_SEC=900\n"
-        "DARCHIVE_PROCESSOR_BATCH_SIZE=10\n"
-        "DARCHIVE_TESSERACT_BIN=tesseract\n",
-        encoding="utf-8",
+    values.update(
+        {key: value.strip() for key, value in (provider_values or {}).items() if value is not None}
     )
+    update_env_values(env_file, values)
     os.environ.update(values)
 
 def ask_yes_no(prompt: str, *, default: bool) -> bool:

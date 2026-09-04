@@ -16,19 +16,19 @@ def test_gitignore_covers_private_runtime_files():
 
 def test_launchd_scripts_reference_bot_and_processor():
     install = (ROOT / "scripts" / "install_launch_agent.sh").read_text(encoding="utf-8")
-    assert "com.hennei.darchivebot.telegram" in install
-    assert "com.hennei.darchivebot.processor" in install
-    assert "com.hennei.darchivebot.digest" in install
-    assert "com.hennei.darchivebot.digest.project-seed" in install
-    assert "com.hennei.darchivebot.digest.weekly" in install
-    assert "<string>telegram</string>" in install
-    assert "<string>process</string>" in install
-    assert "<string>--export-graph</string>" in install
-    assert "<string>telegram-digest</string>" in install
-    assert "<string>revisit</string>" in install
-    assert "<string>project-seed</string>" in install
-    assert "<string>weekly</string>" in install
-    assert "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" in install
+    launchd = (ROOT / "src" / "darchivebot" / "launchd.py").read_text(encoding="utf-8")
+    assert "python\" -m darchivebot.launchd install" in install
+    assert "launchd_schedule" in launchd
+    assert "com.hennei.darchivebot.telegram" in launchd
+    assert "com.hennei.darchivebot.processor" in launchd
+    assert "com.hennei.darchivebot.food-collect" in launchd
+    assert "com.hennei.darchivebot.digest" in launchd
+    assert "com.hennei.darchivebot.digest.project-seed" in launchd
+    assert "com.hennei.darchivebot.digest.weekly" in launchd
+    assert '"telegram"' in launchd
+    assert "ProgramArguments" in launchd
+    assert "job.command" in launchd
+    assert "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" in launchd
 
 
 def test_preflight_script_checks_private_runtime_files_and_secrets():
@@ -42,6 +42,24 @@ def test_readme_frames_product_as_interest_aware_archive_without_mvp_language():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "아이디어 주머니" in text
     assert "AI, 커리어, 테크놀로지, 스포츠 같은 관심사" in text
+    assert "Momukbot의 맛집 추천 도메인" in text
+    assert "Honsanam Reminder의 생활 알림 도메인" in text
+    assert "canonical repo" in text
+    assert "SQLite가 운영 데이터의 source of truth" in text
+    assert "`archive`" in text
+    assert "`food`" in text
+    assert "`life`" in text
+    assert "`course`" in text
+    assert "momuk" in text
+    assert "honsanam-reminder" in text
+    assert "darchive archive list" in text
+    assert "darchive food parse" in text
+    assert "darchive food plan-collection" in text
+    assert "darchive life list" in text
+    assert "darchive life next" in text
+    assert "darchive life preview" in text
+    assert "darchive course plan" in text
+    assert "darchive schedule plan" in text
     assert "Viewpoint Layer" in text
     assert "insight seed" in text
     assert "darchive insights generate --period weekly" in text
@@ -80,3 +98,41 @@ def test_ontology_graph_docs_define_semantic_store_with_lightweight_jsonld_expor
     assert "raw extracted text is not exported or stored in the semantic graph by default" in text
     assert "Questions and relation candidates are stored as normalized archive fields" in text
     assert "archive_interpretations" in text
+
+
+def test_personal_context_platform_docs_define_canonical_migration_boundaries():
+    text = (ROOT / "docs" / "personal-context-platform.md").read_text(encoding="utf-8")
+    assert "Darchivebot becomes the canonical repository" in text
+    assert "SQLite remains the operational source of truth" in text
+    assert "`archive`" in text
+    assert "`food`" in text
+    assert "`life`" in text
+    assert "`course`" in text
+    assert "derived search index and graph exports" in text
+    assert "Do not use git subtree or repository archiving as the first step" in text
+    assert "darchive archive" in text
+    assert "darchive schedule plan" in text
+
+
+def test_source_migration_docs_capture_public_compatibility_surfaces():
+    momuk = (ROOT / "docs" / "migrations" / "momukbot.md").read_text(encoding="utf-8")
+    honsanam = (ROOT / "docs" / "migrations" / "honsanam-reminder-bot.md").read_text(encoding="utf-8")
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "Target domain: `darchivebot.domains.food`" in momuk
+    assert "momuk recommend" in momuk
+    assert "momuk telegram" in momuk
+    assert "KAKAO_REST_API_KEY" in momuk
+    assert "NAVER_DAILY_SOFT_LIMIT" in momuk
+    assert "has uncommitted recommendation-quality work" in momuk
+    assert "DARCHIVE_MOMUK_CLI" in momuk
+
+    assert "Target domain: `darchivebot.domains.life`" in honsanam
+    assert "honsanam-reminder run-once" in honsanam
+    assert "honsanam-reminder poll-replies --watch" in honsanam
+    assert "TELEGRAM_REMINDER_CHAT_ID" in honsanam
+    assert "stale" in honsanam
+    assert "DARCHIVE_HONSANAM_REMINDER_CLI" in honsanam
+
+    assert 'momuk = "darchivebot.compat_cli:momuk_main"' in pyproject
+    assert 'honsanam-reminder = "darchivebot.compat_cli:honsanam_reminder_main"' in pyproject

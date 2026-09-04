@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from darchivebot import cli
 from darchivebot.cli import main
-from darchivebot.config import Settings
+from darchivebot.config import Settings, read_env_values
 from darchivebot.storage import ArchiveStore
 
 
@@ -46,6 +47,56 @@ def test_setup_cmd_writes_env_without_printing_secret(tmp_path, monkeypatch, cap
 
     assert "secret-token" in env_file.read_text(encoding="utf-8")
     assert "secret-token" not in capsys.readouterr().out
+
+
+def test_setup_cmd_preserves_existing_food_provider_config(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("KAKAO_REST_API_KEY=keep-provider-key\n", encoding="utf-8")
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "DEFAULT_ENV_FILE", env_file)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "run_doctor", lambda settings, store, online=False: (0, "[OK] doctor"))
+
+    assert cli.setup_cmd(
+        settings,
+        dry_run=False,
+        non_interactive=True,
+        telegram_bot_token="token",
+        telegram_chat_id="123",
+        telegram_admin_user_id="42",
+        allow_all_chats=False,
+        install_launchd=False,
+    ) == 0
+
+    assert "KAKAO_REST_API_KEY=keep-provider-key" in env_file.read_text(encoding="utf-8")
+
+
+def test_setup_accepts_momuk_provider_options_without_printing_secrets(tmp_path, monkeypatch, capsys):
+    env_file = tmp_path / ".env"
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "DEFAULT_ENV_FILE", env_file)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "run_doctor", lambda settings, store, online=False: (0, "[OK] doctor"))
+
+    assert main([
+        "setup", "--non-interactive",
+        "--telegram-bot-token", "telegram-secret",
+        "--telegram-allowed-chat-ids", "123",
+        "--telegram-admin-user-ids", "42",
+        "--kakao-rest-api-key", "kakao-secret",
+        "--naver-client-id", "naver-id",
+        "--naver-client-secret", "naver-secret",
+        "--codex-bin", "/opt/local/bin/codex",
+    ]) == 0
+
+    values = read_env_values(env_file)
+    assert values["KAKAO_REST_API_KEY"] == "kakao-secret"
+    assert values["NAVER_CLIENT_SECRET"] == "naver-secret"
+    assert values["DARCHIVE_CODEX_BIN"] == "/opt/local/bin/codex"
+    output = capsys.readouterr().out
+    assert "telegram-secret" not in output
+    assert "kakao-secret" not in output
+    assert "naver-secret" not in output
 
 
 def test_send_test_requires_exactly_one_target(capsys):
@@ -233,6 +284,68 @@ def test_search_command_can_rebuild_generated_index(tmp_path, monkeypatch, capsy
 
     assert "search index rebuilt archive_items=1" in output
     assert "why: Matched" in output
+
+
+def test_archive_group_list_search_and_show_alias_existing_archive_commands(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    capture_id = add_archive_item(
+        store,
+        message_id=35,
+        title="Grouped archive command",
+        primary_interest="AI",
+        secondary_interests=["product"],
+        topic="cli",
+        tags=["archive"],
+        raw_text="Grouped archive search alias keeps behavior compatible.",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["archive", "list", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload[0]["id"] == capture_id
+
+    assert main(["archive", "search", "Grouped", "--json"]) == 0
+    search_payload = json.loads(capsys.readouterr().out)
+    assert search_payload["query"] == "Grouped"
+    assert search_payload["results"][0]["capture_id"] == capture_id
+
+    assert main(["archive", "show", capture_id, "--json"]) == 0
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["archive_item"]["title"] == "Grouped archive command"
+
+
+def test_archive_group_review_and_distribution_aliases(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    capture_id = add_archive_item(
+        store,
+        message_id=36,
+        title="Grouped review command",
+        primary_interest="AI",
+        secondary_interests=[],
+        topic="cli",
+        tags=["alias"],
+        needs_review=True,
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["archive", "review", "--needs-review", "--json"]) == 0
+    review_payload = json.loads(capsys.readouterr().out)
+    assert [item["capture_id"] for item in review_payload["items"]] == [capture_id]
+
+    assert main(["archive", "interests", "--json"]) == 0
+    interests_payload = json.loads(capsys.readouterr().out)
+    assert {
+        "interest": "AI",
+        "total_count": 1,
+        "primary_count": 1,
+        "secondary_count": 0,
+    } in interests_payload["interests"]
+
+    assert main(["archive", "concepts", "--json"]) == 0
+    concepts_payload = json.loads(capsys.readouterr().out)
+    assert {"concept": "alias", "count": 1} in concepts_payload["concepts"]
 
 
 def test_review_command_lists_needs_review_and_revisit_queues(tmp_path, monkeypatch, capsys):
@@ -536,6 +649,480 @@ def test_related_uses_read_only_shared_archive_signals(tmp_path, monkeypatch, ca
     assert result["related"][0]["score"] > 0
     assert "agents" in result["related"][0]["shared_topics"]
     assert "graph" in result["related"][0]["shared_concepts"]
+
+
+def test_food_plan_collection_command_can_persist_query_ledger(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["food", "plan-collection", "--area", "신정동", "--alias", "목동역", "--daily-quota-limit", "4", "--persist", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["area"] == "신정동"
+    assert result["quota_cost"] == 4
+    assert len(result["persisted"]) == 4
+
+    assert main(["food", "due-queries", "--due-at", "2999-01-01T00:00:00+00:00", "--json"]) == 0
+    due = json.loads(capsys.readouterr().out)
+    assert len(due) == 4
+    assert {row["domain"] for row in due} == {"food"}
+
+
+def test_food_parse_command_exposes_native_parser_without_provider_calls(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["food", "parse", "오목교역 곱창 맛집 3곳 추천", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "intent": "start",
+        "area": "오목교역",
+        "topic": "곱창",
+        "meal_type": "",
+        "budget": "",
+        "occasion": "",
+        "count": 3,
+        "needs_location": False,
+    }
+
+    assert main(["food", "parse", "내 주변 야식 맛집 추천"]) == 0
+    output = capsys.readouterr().out
+    assert "intent=needs_location" in output
+    assert "meal_type=야식" in output
+
+
+def test_food_recommend_local_command_ranks_sqlite_candidates_and_audits_session(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    settings = make_cli_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    area = store.upsert_area(name="신정동", normalized_name="신정동")
+    place = store.upsert_place(
+        provider="kakao_local",
+        provider_place_id="20551759",
+        name="미성참숯정육식당",
+        normalized_name="미성참숯정육식당",
+        area_id=area["id"],
+        category="고기",
+        road_address="서울 양천구 신정중앙로 70",
+        map_url="https://place.map.kakao.com/20551759",
+    )
+    evidence = store.upsert_evidence_item(
+        provider="naver_blog",
+        url="https://blog.example/meat",
+        title="신정동 고기 저녁 후기",
+        snippet="숯불고기",
+        author="local-author",
+    )
+    store.link_place_evidence(
+        place_id=place["id"],
+        evidence_item_id=evidence["id"],
+        match_type="exact_name",
+        score=0.91,
+        decision="matched",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["food", "recommend-local", "--area", "신정동", "--topic", "고기 저녁", "--count", "5", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["requested_count"] == 5
+    assert result["returned_count"] == 1
+    assert result["session_id"]
+    assert result["places"][0]["name"] == "미성참숯정육식당"
+    assert result["places"][0]["evidence_tier"] == "partial"
+    assert result["places"][0]["evidence"][0]["url"] == "https://blog.example/meat"
+
+
+def test_food_recommend_local_dry_run_does_not_persist_session(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    area = store.upsert_area(name="신정동", normalized_name="신정동")
+    store.upsert_place(
+        provider="kakao_local",
+        provider_place_id="dry-place",
+        name="Dry Run Place",
+        normalized_name="dryrunplace",
+        area_id=area["id"],
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main([
+        "food", "recommend-local", "--area", "신정동", "--dry-run", "--json",
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["session_id"] == ""
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM recommendation_sessions").fetchone()[0] == 0
+
+
+def test_food_run_collection_dry_run_respects_configured_provider_and_does_not_call_api(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    settings = replace(make_cli_settings(tmp_path), kakao_rest_api_key="configured")
+    store = ArchiveStore(settings.state_dir)
+    area = store.upsert_area(name="신정동", normalized_name="신정동")
+    query = store.upsert_query_ledger_entry(
+        domain="food",
+        provider="kakao_local",
+        query_text="신정동 맛집",
+        area_id=area["id"],
+        facet="broad_discovery",
+        sort_mode="accuracy",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["food", "run-collection", "--max-queries", "1", "--dry-run", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["dry_run"] is True
+    assert result["items"] == [
+        {
+            "ledger_id": query["id"],
+            "provider": "kakao_local",
+            "query_text": "신정동 맛집",
+            "status": "dry_run",
+            "yielded_count": 0,
+            "places_stored": 0,
+            "evidence_stored": 0,
+            "evidence_links": 0,
+            "failure_reason": "",
+            "quota_cost": 1,
+        }
+    ]
+    assert store.list_places(area_id=area["id"]) == []
+
+
+def test_food_import_provider_config_copies_known_keys_without_printing_secrets(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    settings = make_cli_settings(tmp_path)
+    target_env = settings.root / ".env"
+    target_env.write_text("TELEGRAM_BOT_TOKEN=existing\nKAKAO_REST_API_KEY=already-set\n", encoding="utf-8")
+    source_env = tmp_path / "momuk.env"
+    source_env.write_text(
+        "KAKAO_REST_API_KEY=source-kakao-secret\n"
+        "NAVER_CLIENT_ID=source-client-secret\n"
+        "NAVER_CLIENT_SECRET=source-naver-secret\n"
+        "NAVER_DAILY_SOFT_LIMIT=90\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["food", "import-provider-config", "--source-env", str(source_env), "--json"]) == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["imported_keys"] == [
+        "DARCHIVE_NAVER_DAILY_SOFT_LIMIT",
+        "NAVER_CLIENT_ID",
+        "NAVER_CLIENT_SECRET",
+    ]
+    assert result["preserved_keys"] == ["KAKAO_REST_API_KEY"]
+    assert "source-naver-secret" not in output
+    values = read_env_values(target_env)
+    assert values["TELEGRAM_BOT_TOKEN"] == "existing"
+    assert values["KAKAO_REST_API_KEY"] == "already-set"
+    assert values["NAVER_CLIENT_SECRET"] == "source-naver-secret"
+
+
+def test_life_import_honsanam_command_supports_read_only_dry_run(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    source_root = tmp_path / "legacy-honsanam"
+    source_root.mkdir()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "import-honsanam", "--root", str(source_root), "--dry-run", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["source_root"] == str(source_root.resolve())
+    assert result["reminders"] == 12
+    assert result["sent_events"] == 0
+    assert result["dry_run"] is True
+    assert not (settings.state_dir / "darchivebot.sqlite3").exists()
+
+
+def test_life_preview_command_preserves_default_due_reminders(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "preview", "--date", "2026-08-30", "--time", "20:00", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert [item["reminder_id"] for item in result] == ["trash-2026-08-30"]
+    assert "생활알림 | 분리수거" in result[0]["message"]
+
+
+def test_life_list_command_exposes_imported_default_catalog(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "list", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    ids = [item["reminder_id"] for item in result]
+    assert ids[:4] == ["haircut", "fingernails", "toenails", "trash"]
+    assert result[0]["title"] == "미용실 예약"
+    assert result[0]["requires_confirmation"] is True
+    assert {"label": "예약했음", "choice": "yes"} in result[0]["interaction_labels"]
+
+
+def test_life_next_command_lists_upcoming_default_reminders(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "next", "--date", "2026-08-29", "--time", "00:00", "--days", "2", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    ids = [item["reminder_id"] for item in result]
+    assert "mac-status-2026-08-29" in ids
+    assert "weekend-cleaning-2026-08-29" in ids
+    assert "trash-2026-08-30" in ids
+
+
+def test_life_run_once_dry_run_uses_sqlite_without_creating_events(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path, token="token", chat_ids=("123",))
+    store = ArchiveStore(settings.state_dir)
+    routine = store.upsert_routine(routine_key="trash", title="Trash", description="")
+    store.upsert_reminder(
+        routine_id=routine["id"],
+        reminder_key="trash",
+        title="Trash",
+        cadence="trash",
+        schedule={"time": "20:00", "weekdays": ["sun"]},
+        action="Take out trash",
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "run-once", "--date", "2026-08-30", "--time", "20:00", "--dry-run", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["due"] == 1
+    assert result["sent"] == 0
+    assert store.list_due_reminder_events(due_at="9999-12-31T00:00:00+00:00") == []
+
+
+def test_life_run_once_sends_due_sqlite_event_once(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path, token="token", chat_ids=("123",))
+    store = ArchiveStore(settings.state_dir)
+    routine = store.upsert_routine(routine_key="trash", title="Trash", description="")
+    store.upsert_reminder(
+        routine_id=routine["id"],
+        reminder_key="trash",
+        title="Trash",
+        cadence="trash",
+        schedule={"time": "20:00", "weekdays": ["sun"]},
+        action="Take out trash",
+    )
+
+    class Api:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+            return {"result": {"message_id": len(self.messages)}}
+
+    api = Api()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "TelegramApiClient", lambda token: api)
+    args = ["life", "run-once", "--date", "2026-08-30", "--time", "20:00", "--json"]
+
+    assert main(args) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert main(args) == 0
+    second = json.loads(capsys.readouterr().out)
+
+    assert (first["due"], first["sent"]) == (1, 1)
+    assert (second["due"], second["sent"]) == (0, 0)
+    assert len(api.messages) == 1
+
+
+def test_life_native_management_commands_round_trip_custom_reminder(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main([
+        "life", "add", "custom",
+        "--id", "water-plants",
+        "--title", "Water plants",
+        "--kind", "weekly",
+        "--time", "09:30",
+        "--weekday", "sun",
+        "--action", "Water plants",
+    ]) == 0
+    assert "added water-plants" in capsys.readouterr().out
+
+    assert main(["life", "show", "water-plants", "--json"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["weekday"] == "sun"
+
+    assert main(["life", "update", "water-plants", "--time", "10:15", "--title", "Water all plants"]) == 0
+    capsys.readouterr()
+    assert main(["life", "disable", "water-plants"]) == 0
+    capsys.readouterr()
+    assert main(["life", "validate"]) == 0
+    assert "valid" in capsys.readouterr().out
+
+    assert main(["life", "show", "water-plants", "--json"]) == 0
+    updated = json.loads(capsys.readouterr().out)
+    assert updated["time"] == "10:15"
+    assert updated["title"] == "Water all plants"
+    assert updated["enabled"] is False
+
+    assert main(["life", "remove", "water-plants"]) == 0
+    assert "removed water-plants" in capsys.readouterr().out
+
+
+def test_life_native_management_rejects_invalid_custom_schedule(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main([
+        "life", "add", "custom",
+        "--id", "water-plants",
+        "--title", "Water plants",
+        "--kind", "weekly",
+        "--time", "25:00",
+        "--weekday", "sun",
+        "--action", "Water plants",
+    ]) == 1
+    assert "time must be HH:MM" in capsys.readouterr().out
+
+
+def test_life_pending_answer_and_interactions_use_sqlite_events(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    store = ArchiveStore(settings.state_dir)
+    routine = store.upsert_routine(routine_key="haircut", title="Haircut")
+    reminder = store.upsert_reminder(
+        routine_id=routine["id"],
+        reminder_key="haircut",
+        title="Haircut",
+        cadence="haircut",
+        schedule={},
+        action="Book haircut",
+        requires_confirmation=True,
+    )
+    event = store.upsert_reminder_event(
+        reminder_id=reminder["id"],
+        event_key="life:haircut:test",
+        due_at="2026-09-01T08:45:00+09:00",
+        status="pending_confirmation",
+        response_payload={
+            "title": "Haircut",
+            "prompt": "Booked?",
+            "actions": ["yes", "no"],
+            "followup_days": 7,
+        },
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "pending", "--json"]) == 0
+    pending = json.loads(capsys.readouterr().out)
+    assert pending[0]["id"] == event["id"]
+
+    assert main(["life", "answer", event["id"], "yes"]) == 0
+    assert "recorded yes" in capsys.readouterr().out
+    assert main(["life", "interactions", "--json"]) == 0
+    interactions = json.loads(capsys.readouterr().out)
+    assert interactions[0]["status"] == "completed"
+    assert interactions[0]["selected_response"] == "yes"
+
+
+def test_life_pattern_commands_persist_and_render_from_sqlite(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["life", "pattern", "set", "--prefix", "내 알림", "--action-label", "할 일"]) == 0
+    updated = json.loads(capsys.readouterr().out)
+    assert updated["prefix"] == "내 알림"
+
+    assert main(["life", "pattern", "show"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown == updated
+
+    assert main(["life", "preview", "--date", "2026-08-30", "--time", "20:00", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert "내 알림 | 분리수거" in preview[0]["message"]
+    assert "할 일" in preview[0]["message"]
+
+
+def test_course_plan_command_can_persist_draft(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert (
+        main(
+            [
+                "course",
+                "plan",
+                "--title",
+                "이태원 저녁 코스",
+                "--area",
+                "이태원",
+                "--date",
+                "2026-08-29",
+                "--time",
+                "18:00",
+                "--persist",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["title"] == "이태원 저녁 코스"
+    assert result["stored"]["title"] == "이태원 저녁 코스"
+    assert result["stops"] == []
+
+
+def test_schedule_plan_command_lists_unified_jobs(tmp_path, monkeypatch, capsys):
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert main(["schedule", "plan", "--json"]) == 0
+
+    rows = json.loads(capsys.readouterr().out)
+    names = {row["name"] for row in rows}
+    assert "telegram" in names
+    assert "archive-process" in names
+    assert "food-collect" in names
+    assert "life-send" in names
+    assert "course-suggestions" not in names
+
+    assert main(["schedule", "plan", "--include-disabled", "--json"]) == 0
+    all_rows = json.loads(capsys.readouterr().out)
+    assert "course-suggestions" in {row["name"] for row in all_rows}
+
+
+def test_schedule_cutover_check_is_read_only_and_reports_blockers(tmp_path, monkeypatch, capsys):
+    from darchivebot.cutover import LaunchdSnapshot
+
+    settings = make_cli_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        cli,
+        "inspect_launchd",
+        lambda: LaunchdSnapshot(loaded_labels=frozenset(), present_plists=frozenset()),
+    )
+
+    assert main(["schedule", "cutover-check", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ready"] is False
+    assert any(item["name"] == "life_sender_plist_ready" for item in report["blockers"])
 
 
 def test_insights_generate_dry_run_uses_processed_review_ready_items_without_raw_text(tmp_path, monkeypatch, capsys):

@@ -1,6 +1,7 @@
 # 다카이브봇
 
 다카이브봇은 내가 흥미롭게 본 글과 캡처를 Telegram으로 공유하면, 아이디어 주머니로 다시 꺼내 쓸 수 있게 정리해 주는 로컬 봇입니다.
+현재 통합 브랜치에서는 Momukbot의 맛집 추천 도메인과 Honsanam Reminder의 생활 알림 도메인을 다카이브봇 안으로 흡수해, 아카이브, 맛집, 생활 루틴, 개인 코스를 하나의 SQLite 기반 개인 컨텍스트 플랫폼으로 묶는 방향으로 확장하고 있습니다.
 
 웹에서 본 글, 소셜 피드 캡처, 다시 생각해 보고 싶은 문장을 Telegram으로 보내면 원본은 내 컴퓨터에 저장되고, 내용은 관심사별 아카이브 항목으로 정리됩니다. 단순히 파일을 모아두는 것이 아니라, 캡처 속 내용을 읽어 나중에 아이디어로 꺼내 쓸 수 있는 형태로 남깁니다.
 
@@ -12,6 +13,7 @@
 - AI, 커리어, 테크놀로지, 스포츠 같은 관심사와 세부 주제로 분류합니다.
 - 왜 저장했는지, 다시 볼 우선순위가 무엇인지, 나중에 어떤 생각과 연결될 수 있는지까지 남깁니다.
 - 정리된 항목 중 판단이 필요한 것만 Telegram 카드로 다시 알려주고, 버튼 선택을 SQLite에 감사 기록으로 남깁니다.
+- 맛집 후보, 외부 근거, 생활 알림, 코스 제안 같은 개인 도메인 데이터도 같은 로컬 SQLite 경계 안에 저장하도록 확장 중입니다.
 
 ## 어떤 프로젝트인가
 
@@ -63,6 +65,17 @@ Viewpoint Layer
   -> 관련 캡처, 반복되는 테마, 남아 있는 질문, 프로젝트 씨앗, Codex 논의 맥락
 ```
 
+## 개인 컨텍스트 플랫폼 방향
+
+다카이브봇은 이제 세 개의 독립 도구를 한 번에 지우는 방식이 아니라, 동작을 보존하면서 하나의 canonical repo로 옮기는 방식으로 통합됩니다.
+
+- `archive`: 기존 다카이브 캡처, 처리, 검색, 리뷰, graph/export 흐름입니다.
+- `food`: Momukbot에서 온 맛집 수집, 근거 저장, 랭킹, 개인 피드백 도메인입니다.
+- `life`: Honsanam Reminder에서 온 생활 루틴, 알림 스케줄, 확인 상태 도메인입니다.
+- `course`: 저장된 맛집, 생활 루틴, 아카이브 관심사를 조합하는 개인 코스 도메인입니다.
+
+SQLite가 운영 데이터의 source of truth이고, RDF graph와 JSON-LD export는 검증된 SQLite row에서 다시 만들 수 있는 파생물입니다. 기존 `momuk`과 `honsanam-reminder` CLI는 native 이관이 끝날 때까지 Darchivebot console script wrapper로 유지됩니다.
+
 ## 로컬 아카이브에 정리되는 내용
 
 다카이브봇은 Telegram으로 보낸 캡처와 메시지를 로컬 폴더와 SQLite DB에 저장하고, 나중에 찾아보기 쉬운 형태로 정리합니다.
@@ -111,6 +124,10 @@ darchive telegram-commands sync
 darchive send-test --allowed
 ```
 
+같은 setup 명령에서 `--kakao-rest-api-key`, `--naver-client-id`,
+`--naver-client-secret`도 설정할 수 있습니다. 호환 wrapper는 기존
+`--telegram-allowed-chat-ids`, `--telegram-admin-user-ids` 이름도 허용합니다.
+
 일반 운영은 launchd/cron이 poller, processor, digest prompt를 관리하는 방식입니다.
 
 ```bash
@@ -157,6 +174,32 @@ darchive reprocess-plan
 darchive reprocess-plan --json
 darchive reprocess --capture-id <capture-id> --dry-run
 darchive reprocess --capture-id <capture-id>
+darchive archive list
+darchive archive search <query>
+darchive archive review
+darchive archive show <capture-id>
+darchive food parse "오목교역 곱창 맛집 추천"
+darchive food plan-collection --area 신정동 --daily-quota-limit 30
+darchive food due-queries
+darchive food import-provider-config --source-env /path/to/momukbot/.env --dry-run
+darchive food import-momuk-history --root /path/to/momukbot --dry-run
+darchive food plan-history-refresh --area 신정동 --legacy-area "현재 위치" --persist
+darchive food quota --json
+darchive food run-collection --max-queries 20 --max-quota-cost 20 --dry-run
+darchive food recommend-local --area 신정동 --topic "고기 저녁" --count 10
+darchive life list
+darchive life next --date 2026-08-29 --days 7
+darchive life preview --date 2026-08-29 --time 09:00
+darchive life import-honsanam --root /path/to/honsanam-reminder-bot --dry-run
+darchive life run-once --dry-run --json
+darchive life show trash --json
+darchive life add custom --id water-plants --title "화분 물주기" --kind weekly --time 09:30 --weekday sun --action "화분에 물 주기"
+darchive life pending --json
+darchive life pattern show
+darchive course plan --area 이태원 --date 2026-08-29 --time 18:30
+darchive schedule plan
+darchive schedule cutover-check
+python -m darchivebot.launchd write . --include-life-sender
 darchive graph init
 darchive graph sync
 darchive graph store-export
@@ -188,6 +231,26 @@ darchive send-test --chat-id <telegram-chat-id>
 - `process --export-graph`: 새 항목이 정리되면 RDF semantic store와 lightweight JSON-LD export를 함께 새로 만듭니다.
 - `telegram-digest`: 재방문, 프로젝트 씨앗, 주간 인사이트 후보를 짧은 Telegram 버튼 카드로 보냅니다. 예약 실행용이며, 일반 사용자가 직접 명령을 외워 쓸 필요는 없습니다.
 - `telegram-digest --dry-run --json`: 실제 Telegram 메시지를 보내지 않고 어떤 카드가 만들어질지 로컬에서 확인합니다.
+- `archive ...`: 기존 archive 관련 flat command의 grouped alias입니다. `darchive list`와 `darchive archive list`는 같은 로컬 archive 데이터를 봅니다.
+- `food parse`: 맛집 요청의 지역, 음식 주제, 인원 수, 현재 위치 필요 여부를 provider 호출 없이 파싱합니다.
+- `food plan-collection`: 한도 안에서 지역, 키워드, provider, 정렬 방식을 분산한 맛집 수집 query plan을 만듭니다.
+- `food due-queries`: SQLite query ledger에서 실행할 차례가 된 food collection query를 확인합니다.
+- `food import-provider-config`: 기존 Momukbot `.env`에서 Kakao/Naver 설정만 가져오며 기존 Darchive 설정과 secret 출력은 건드리지 않습니다.
+- `food import-momuk-history`: 기존 추천 row를 request session과 candidate로 idempotent하게 가져옵니다. raw model response는 복사하지 않으며 기존 place 이름이 유일하게 일치할 때만 연결합니다.
+- `food plan-history-refresh`: 명시한 legacy area의 반복 후보만 exact-place Kakao/Naver refresh query로 변환합니다. 다른 지역 history는 자동으로 섞지 않습니다.
+- `food quota`: immutable query execution log를 기준으로 provider별 당일 사용량과 남은 soft limit을 표시합니다.
+- `food run-collection`: provider별 일일 soft limit와 실행당 quota cap 안에서 due query를 분산 실행하고 모든 장소/근거를 SQLite에 저장합니다.
+- `food recommend-local`: 검증되어 SQLite에 저장된 장소와 근거, 개인 feedback만으로 추천을 랭킹하고 추천 session을 기록합니다.
+- `DARCHIVE_NATIVE_PERSONAL_TELEGRAM=true`: Telegram 맛집, 생활 알림 조회, 코스 요청을 archive capture 대신 SQLite 기반 native handler로 처리하고, 맛집 상위 후보의 좋아요/별로/방문/숨김/비슷한 곳 feedback 버튼을 활성화합니다. 기본값은 `false`이며 검증된 방에서 전환하기 전까지 기존 capture 동작을 유지합니다.
+- `DARCHIVE_LIFE_TIMEZONE=Asia/Seoul`: 생활 알림의 현재 시각과 CLI 입력 시각을 해석할 timezone입니다. 기존 동작과의 호환을 위해 기본값은 `Asia/Seoul`입니다.
+- `life list`: Honsanam 기본 루틴에서 이관한 알림 정의를 확인합니다.
+- `life next`: 지정한 날짜부터 며칠 안에 예정된 기본 생활 알림을 확인합니다.
+- `life preview`: Honsanam 기본 루틴 기준으로 특정 KST 시각에 어떤 알림이 due인지 확인합니다.
+- `life import-honsanam`: 기존 Honsanam 설정, 발송 이력, interaction, confirmation JSON을 shared SQLite로 idempotent하게 가져옵니다. 실제 import 전에 `--dry-run`으로 확인할 수 있습니다.
+- `life run-once`: SQLite에 저장된 고정/사용자 정의 일정과 발송 상태를 기준으로 due 알림을 Telegram에 한 번만 보냅니다. `--dry-run`은 메시지나 reminder event를 만들지 않습니다. 기존 Honsanam job과 중복 실행되지 않도록 통합 launchd 전환 전에는 수동 검증에만 사용합니다.
+- `course plan`: 저장된 archive metadata, food ranking, due life event를 SQLite에서 읽어 개인 코스 초안을 만들고 `--persist`로 근거 연결을 저장합니다.
+- `schedule plan`: Telegram polling, archive processing, digest, food/life 계획을 포함한 unified scheduler plan을 확인합니다.
+- `schedule cutover-check`: launchd 상태, native Telegram gate, life sender 관리 상태, SQLite confirmation backlog를 읽기 전용으로 검사합니다. blocker가 있으면 종료 코드 1을 반환하며 agent를 load/unload하지 않습니다.
 - `search`: SQLite FTS5 로컬 색인으로 저장된 아카이브를 검색하고 어떤 필드가 매칭됐는지 보여줍니다.
 - `search --rebuild`: 검증된 archive row에서 검색 색인을 결정적으로 다시 만듭니다.
 - `review`: 다시 확인하거나 나중에 꺼내볼 아카이브 항목을 로컬 큐로 보여줍니다.

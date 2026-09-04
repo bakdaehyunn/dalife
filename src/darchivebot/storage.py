@@ -9,6 +9,7 @@ from darchivebot.persistence.repositories import (
     ArchiveRepository,
     CaptureRepository,
     InsightRepository,
+    PersonalContextRepository,
     ProcessingRepository,
     PromptRepository,
     SearchRepository,
@@ -26,6 +27,7 @@ class ArchiveStore:
         self.search = SearchRepository(self.database)
         self.prompts = PromptRepository(self.database)
         self.insights = InsightRepository(self.database)
+        self.personal_context = PersonalContextRepository(self.database)
         self._repositories = (
             self.captures,
             self.archives,
@@ -33,6 +35,7 @@ class ArchiveStore:
             self.search,
             self.prompts,
             self.insights,
+            self.personal_context,
         )
 
     @property
