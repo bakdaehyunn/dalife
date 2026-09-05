@@ -21,7 +21,7 @@ class FakeTelegramApi:
         if scope is not None:
             return [
                 {"command": "chatid", "description": "설정용 채팅방 ID 확인"},
-                {"command": "set_chat_room", "description": "설정용 다카이브봇 사용 방 등록"},
+                {"command": "set_chat_room", "description": "DaLife 사용 방 등록"},
             ]
         return self.commands
 

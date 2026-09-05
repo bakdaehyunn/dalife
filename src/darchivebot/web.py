@@ -87,7 +87,7 @@ def render_home(store: WebStore) -> str:
             )
         )
     content = search_form() + nav_links() + section("Recent archive", "".join(items) or "<p>No captures yet.</p>")
-    return page("Darchivebot Local Archive", content)
+    return page("DaLife Local Archive", content)
 
 
 def render_search(store: WebStore, query: dict[str, list[str]]) -> str:
@@ -218,7 +218,7 @@ def page(title: str, content: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)} - Darchivebot</title>
+  <title>{escape(title)} - DaLife</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #17211d; background: #f6f8f7; }}
     header {{ background: #12251f; color: white; padding: 22px 28px; }}
@@ -238,7 +238,7 @@ def page(title: str, content: str) -> str:
   </style>
 </head>
 <body>
-  <header><h1>Darchivebot Local Archive</h1><p>Local search, review, related captures, and insight notes.</p></header>
+  <header><h1>DaLife Local Archive</h1><p>Local search, review, related captures, and insight notes.</p></header>
   <main>{content}</main>
 </body>
 </html>"""

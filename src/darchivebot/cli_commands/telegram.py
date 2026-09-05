@@ -101,7 +101,7 @@ def send_test_cmd(
     if dry_run:
         print(f"[dry-run] would send test message to {mask_identifier(target)}")
         return 0
-    TelegramApiClient(settings.telegram_bot_token).send_message(target, "다카이브봇 테스트 메시지입니다.")
+    TelegramApiClient(settings.telegram_bot_token).send_message(target, "DaLife 테스트 메시지입니다.")
     print(f"sent test message to {mask_identifier(target)}")
     return 0
 
@@ -117,7 +117,7 @@ def telegram_digest_cmd_impl(
 ) -> int:
     chat_id = target_prompt_chat_id(settings)
     if not chat_id:
-        message = "No Telegram chat is configured for proactive Darchive prompts."
+        message = "No Telegram chat is configured for proactive DaLife prompts."
         if json_output:
             print(json.dumps({"status": "skipped", "reason": message}, ensure_ascii=False, indent=2))
         else:

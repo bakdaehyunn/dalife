@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "darchivebot"
 version = "0.1.0"
-description = "다카이브봇: Telegram capture archive with local SQLite and Codex-backed processing"
+description = "DaLife: personal recommendations and routines backed by a local context archive"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }

@@ -378,7 +378,7 @@ class TelegramCaptureBot:
             if not self.can_overwrite_registered_room(chat_id, chat, text):
                 return
             self.save_registered_room(chat_id, chat, message)
-            self.api.send_message(chat_id, f"다카이브봇 사용 방으로 등록했습니다.\nchat_id: {chat_id}")
+            self.api.send_message(chat_id, f"DaLife 사용 방으로 등록했습니다.\nchat_id: {chat_id}")
             self.sync_registered_chat_commands(chat_id)
 
     def can_overwrite_registered_room(self, chat_id: str, chat: dict[str, Any], text: str) -> bool:
@@ -390,7 +390,7 @@ class TelegramCaptureBot:
         self.api.send_message(
             chat_id,
             (
-                "이미 다른 방이 다카이브봇 사용 방으로 등록되어 있습니다.\n"
+                "이미 다른 방이 DaLife 사용 방으로 등록되어 있습니다.\n"
                 f"기존: {state.darchive_chat_id} / {state.darchive_chat_title or '(empty)'}\n"
                 f"새 방: {chat_id} / {chat_display_name(chat) or '(empty)'}\n"
                 f"정말 바꾸려면 {REGISTER_CHAT_ROOM_COMMAND} confirm 을 보내주세요."

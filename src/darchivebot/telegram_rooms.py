@@ -13,7 +13,7 @@ DEFAULT_BOT_COMMANDS = [
 ]
 REGISTERED_CHAT_BOT_COMMANDS = [
     *DEFAULT_BOT_COMMANDS,
-    {"command": "set_chat_room", "description": "설정용 다카이브봇 사용 방 등록"},
+    {"command": "set_chat_room", "description": "DaLife 사용 방 등록"},
 ]
 REGISTER_CHAT_ROOM_COMMAND = "/set_chat_room"
 
