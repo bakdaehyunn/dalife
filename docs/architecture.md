@@ -1,6 +1,6 @@
 # DaLife 아키텍처
 
-DaLife은 Telegram을 개인 캡처함으로 쓰고, 로컬 SQLite를 영구 저장소로 쓰는 개인 아카이브 봇입니다.
+DaLife는 Telegram을 개인 캡처함으로 쓰고, 로컬 SQLite를 영구 저장소로 쓰는 개인 아카이브 봇입니다.
 
 ## 흐름
 
