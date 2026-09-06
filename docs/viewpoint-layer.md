@@ -1,8 +1,8 @@
 # Viewpoint Layer
 
-The Viewpoint Layer is the long-term product layer for 다카이브봇.
+The Viewpoint Layer is the long-term product layer for DaLife.
 
-다카이브봇 should not stop at storing captures. The final goal is to make saved captures usable as personal viewpoint material: what the user keeps noticing, what questions keep returning, what topics are becoming important, and what older captures should come back into a new discussion.
+DaLife should not stop at storing captures. The final goal is to make saved captures usable as personal viewpoint material: what the user keeps noticing, what questions keep returning, what topics are becoming important, and what older captures should come back into a new discussion.
 
 The Viewpoint Layer sits above the archive and semantic graph. It does not replace them. It uses their validated data to help Codex discuss the user's own saved material from the user's point of view.
 
@@ -142,7 +142,7 @@ Every prompt and button choice should be stored in SQLite as local audit history
 
 Goal: let Codex use the user's archive as discussion context.
 
-When the user asks Codex about a topic, 다카이브봇 should be able to provide bounded context:
+When the user asks Codex about a topic, DaLife should be able to provide bounded context:
 - relevant captures
 - related themes
 - prior questions
@@ -156,11 +156,11 @@ This is the actual Viewpoint Layer payoff: Codex can discuss new questions with 
 The next practical implementation phase should be graph and archive readiness.
 
 Recommended scope:
-- add `darchive interests`
-- add `darchive concepts`
-- add `darchive graph quality`
-- add a read-only first version of `darchive related <capture-id>`
-- add `darchive reprocess-plan` for weak/fallback archive items
+- add `dalife interests`
+- add `dalife concepts`
+- add `dalife graph quality`
+- add a read-only first version of `dalife related <capture-id>`
+- add `dalife reprocess-plan` for weak/fallback archive items
 - allow explicit selected reprocessing with interpretation history
 - keep all commands local and inspect-first
 - keep Telegram prompts concise and choice-based
@@ -171,23 +171,23 @@ This phase gives the user a way to see whether the archive is strong enough for 
 Current command shape:
 
 ```bash
-darchive interests
-darchive interests --json
-darchive concepts
-darchive concepts --json
-darchive graph quality
-darchive graph quality --json
-darchive reprocess-plan
-darchive reprocess-plan --json
-darchive reprocess --capture-id <capture-id> --dry-run
-darchive reprocess --capture-id <capture-id>
-darchive related <capture-id>
-darchive related <capture-id> --json
+dalife interests
+dalife interests --json
+dalife concepts
+dalife concepts --json
+dalife graph quality
+dalife graph quality --json
+dalife reprocess-plan
+dalife reprocess-plan --json
+dalife reprocess --capture-id <capture-id> --dry-run
+dalife reprocess --capture-id <capture-id>
+dalife related <capture-id>
+dalife related <capture-id> --json
 ```
 
-The inspection commands are local and do not call Codex, create insight notes, send Telegram messages, or rewrite existing archive rows. The exception is explicit selected reprocessing: `darchive reprocess --capture-id <capture-id>` calls the processor for one chosen capture, updates the current archive row on success, and preserves previous outputs in archive interpretation history.
+The inspection commands are local and do not call Codex, create insight notes, send Telegram messages, or rewrite existing archive rows. The exception is explicit selected reprocessing: `dalife reprocess --capture-id <capture-id>` calls the processor for one chosen capture, updates the current archive row on success, and preserves previous outputs in archive interpretation history.
 
-`darchive reprocess-plan` is the quality-repair bridge before synthesis. It lists captures whose archive rows are too weak for reliable Viewpoint Layer work, including fallback-processed rows, missing/unknown interests, missing topics, missing key points, missing insight seeds, missing questions, missing relation candidates, low confidence, and `needs_review` rows. `darchive reprocess --dry-run` previews selected candidates only. Actual archive rewrites require one explicit capture id and remain auditable through interpretation history.
+`dalife reprocess-plan` is the quality-repair bridge before synthesis. It lists captures whose archive rows are too weak for reliable Viewpoint Layer work, including fallback-processed rows, missing/unknown interests, missing topics, missing key points, missing insight seeds, missing questions, missing relation candidates, low confidence, and `needs_review` rows. `dalife reprocess --dry-run` previews selected candidates only. Actual archive rewrites require one explicit capture id and remain auditable through interpretation history.
 
 ## Deferred work
 

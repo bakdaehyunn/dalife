@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from darchivebot.adapters.food.kakao import KakaoFoodApiClient
-from darchivebot.adapters.food.naver import NaverBlogApiClient
+from dalife.adapters.food.kakao import KakaoFoodApiClient
+from dalife.adapters.food.naver import NaverBlogApiClient
 
 
 class FakeResponse:
@@ -43,7 +43,7 @@ def test_kakao_adapter_maps_place_documents(monkeypatch):
             }
         )
 
-    monkeypatch.setattr("darchivebot.adapters.food.kakao.urlopen", fake_urlopen)
+    monkeypatch.setattr("dalife.adapters.food.kakao.urlopen", fake_urlopen)
 
     places = KakaoFoodApiClient("key").search_places(query="신정동 한식", page=1, sort_mode="accuracy")
 
@@ -78,7 +78,7 @@ def test_naver_adapter_filters_domains_and_maps_blog_items(monkeypatch):
             }
         )
 
-    monkeypatch.setattr("darchivebot.adapters.food.naver.urlopen", fake_urlopen)
+    monkeypatch.setattr("dalife.adapters.food.naver.urlopen", fake_urlopen)
 
     evidence = NaverBlogApiClient("id", "secret").search_evidence(
         query="신정동 한식 후기",

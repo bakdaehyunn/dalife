@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from darchivebot.domains.life import (
+from dalife.domains.life import (
     FIXED_REMINDER_ORDER,
     MessagePattern,
     default_reminder_config,
@@ -10,8 +10,8 @@ from darchivebot.domains.life import (
     scheduled_reminders_near,
     upcoming_reminders,
 )
-from darchivebot.domains.life.messages import card
-from darchivebot.domains.life.schedule import apply_haircut_weekend_policy, parse_date
+from dalife.domains.life.messages import card
+from dalife.domains.life.schedule import apply_haircut_weekend_policy, parse_date
 
 
 def test_life_domain_preserves_honsanam_default_reminder_catalog():

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from darchivebot.semantic_graph import (
+from dalife.semantic_graph import (
     default_semantic_export_path,
     default_semantic_store_path,
     export_semantic_store,
     semantic_store_stats,
     sync_semantic_store,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_sync_semantic_store_rebuilds_idempotent_rdf_store(tmp_path):
@@ -55,8 +55,8 @@ def test_semantic_store_export_writes_nquads(tmp_path):
     assert result["export_path"] == str(export_path)
     assert export_path.exists()
     text = export_path.read_text(encoding="utf-8")
-    assert "darchivebot.local/ontology#ArchiveItem" in text
-    assert "darchivebot.local/graph/semantic" in text
+    assert "dalife.local/ontology#ArchiveItem" in text
+    assert "dalife.local/graph/semantic" in text
 
 
 def test_semantic_store_prefers_normalized_questions_and_relation_candidates(tmp_path):

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from darchivebot.domains.course import CoursePlanningContext, compose_course_plan, persist_course_plan, plan_local_course
-from darchivebot.domains.food import EvidenceTier, FoodEvidence, FoodPlace, FoodRecommendationContext, PlaceRanker
-from darchivebot.domains.life import kst_datetime
-from darchivebot.storage import ArchiveStore
+from dalife.domains.course import CoursePlanningContext, compose_course_plan, persist_course_plan, plan_local_course
+from dalife.domains.food import EvidenceTier, FoodEvidence, FoodPlace, FoodRecommendationContext, PlaceRanker
+from dalife.domains.life import kst_datetime
+from dalife.storage import ArchiveStore
 
 
 def test_compose_course_plan_combines_life_food_and_archive_context(tmp_path):

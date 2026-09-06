@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from darchivebot.processor import CaptureProcessor
-from darchivebot.storage import ArchiveStore
+from dalife.processor import CaptureProcessor
+from dalife.storage import ArchiveStore
 
 from conftest import make_settings
 

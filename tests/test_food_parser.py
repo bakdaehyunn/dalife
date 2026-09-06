@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import parse_food_request
+from dalife.domains.food import parse_food_request
 
 
 def test_parse_food_area_and_topic():

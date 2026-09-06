@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import (
+from dalife.domains.food import (
     EvidenceTier,
     FoodRecommendationContext,
     recommend_local_food,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def _seed_place(store, area_id: str, *, place_id: str, name: str, category: str):

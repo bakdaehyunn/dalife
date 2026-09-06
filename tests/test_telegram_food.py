@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from darchivebot.storage import ArchiveStore
-from darchivebot.telegram_food import (
+from dalife.storage import ArchiveStore
+from dalife.telegram_food import (
     apply_food_feedback_callback,
     parse_food_feedback_callback,
     recommend_food_for_telegram,

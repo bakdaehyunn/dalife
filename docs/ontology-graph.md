@@ -1,10 +1,10 @@
 # Ontology-native graph transition
 
-다카이브봇의 long-term direction is a local personal interest graph that supports the Viewpoint Layer. SQLite remains the source of truth and ingestion ledger for Telegram capture state, files, processing runs, and retry status. The graph layer becomes the semantic memory for interests, topics, concepts, claims, questions, and relation candidates. The Viewpoint Layer later uses those facts for related captures, recurring themes, insight notes, and bounded Codex discussion context.
+DaLife의 long-term direction is a local personal interest graph that supports the Viewpoint Layer. SQLite remains the source of truth and ingestion ledger for Telegram capture state, files, processing runs, and retry status. The graph layer becomes the semantic memory for interests, topics, concepts, claims, questions, and relation candidates. The Viewpoint Layer later uses those facts for related captures, recurring themes, insight notes, and bounded Codex discussion context.
 
 ## Storage decision
 
-Current step: embedded pyoxigraph RDF store under `.local/graph/semantic-store/`, with JSON-LD export under `.local/graph/darchivebot.jsonld` as a lightweight portable export for inspection and sharing.
+Current step: embedded pyoxigraph RDF store under `.local/graph/semantic-store/`, with JSON-LD export under `.local/graph/dalife.jsonld` as a lightweight portable export for inspection and sharing.
 
 Why this first:
 - pyoxigraph gives a local RDF/SPARQL store without a server process.
@@ -17,9 +17,9 @@ Later options:
 - Add richer extraction fields for verified inter-item relations after there are enough real captures to evaluate them.
 - Feed the Viewpoint Layer with evidence-backed graph facts instead of broad archive summaries.
 
-Do not switch raw capture storage away from SQLite. The graph store should be regenerated from validated archive rows until the ontology model proves stable. In normal scheduled operation, `darchive process --export-graph` refreshes the graph only after at least one capture is successfully processed.
+Do not switch raw capture storage away from SQLite. The graph store should be regenerated from validated archive rows until the ontology model proves stable. In normal scheduled operation, `dalife process --export-graph` refreshes the graph only after at least one capture is successfully processed.
 
-raw extracted text is not exported or stored in the semantic graph by default. Use `darchive graph sync --include-raw-text` or `darchive graph export --include-raw-text` only when local analysis needs the full OCR/message text in graph output.
+raw extracted text is not exported or stored in the semantic graph by default. Use `dalife graph sync --include-raw-text` or `dalife graph export --include-raw-text` only when local analysis needs the full OCR/message text in graph output.
 
 Questions and relation candidates are stored as normalized archive fields and exported into the graph from those fields. Older rows can still fall back to `raw_codex_json`, but new processing should not require graph/readiness code to parse raw Codex output as the only source.
 
@@ -70,10 +70,10 @@ Future insight relationships:
 ## Current graph store commands
 
 ```bash
-darchive graph init
-darchive graph sync
-darchive graph stats
-darchive graph store-export
+dalife graph init
+dalife graph sync
+dalife graph stats
+dalife graph store-export
 ```
 
 Default store:
@@ -91,28 +91,28 @@ Default N-Quads export:
 ## Portable JSON-LD export
 
 ```bash
-darchive graph export
+dalife graph export
 ```
 
 Default output:
 
 ```text
-.local/graph/darchivebot.jsonld
+.local/graph/dalife.jsonld
 ```
 
 The output is local runtime data. It must stay out of git through the existing `.local/` ignore rule.
 
-This JSON-LD file is not the canonical semantic graph store and is not a complete backup of every RDF fact. It is a lightweight export of archive items and their main relationships. Use `darchive graph store-export` when the goal is to dump the current semantic store facts.
+This JSON-LD file is not the canonical semantic graph store and is not a complete backup of every RDF fact. It is a lightweight export of archive items and their main relationships. Use `dalife graph store-export` when the goal is to dump the current semantic store facts.
 
 Optional:
 
 ```bash
-darchive graph sync --include-raw-text
-darchive graph sync --limit 20 --json
-darchive graph store-export --output /tmp/darchivebot.nq
-darchive graph export --output /tmp/darchivebot.jsonld
-darchive graph export --limit 20 --json
-darchive graph export --include-raw-text
+dalife graph sync --include-raw-text
+dalife graph sync --limit 20 --json
+dalife graph store-export --output /tmp/dalife.nq
+dalife graph export --output /tmp/dalife.jsonld
+dalife graph export --limit 20 --json
+dalife graph export --include-raw-text
 ```
 
 The graph file includes export metadata:
@@ -153,20 +153,20 @@ Lightweight JSON-LD shape:
 
 ```json
 {
-  "@id": "urn:darchive:archive-item:<archive-id>",
+  "@id": "urn:dalife:archive-item:<archive-id>",
   "@type": "darch:ArchiveItem",
   "title": "AI 이후 FDE 채용 증가에 대한 스레드",
-  "aboutCapture": "urn:darchive:capture:<capture-id>",
-  "hasInterest": "urn:darchive:interest:ai",
-  "hasSecondaryInterest": ["urn:darchive:interest:career"],
-  "hasTopic": "urn:darchive:topic:agents",
+  "aboutCapture": "urn:dalife:capture:<capture-id>",
+  "hasInterest": "urn:dalife:interest:ai",
+  "hasSecondaryInterest": ["urn:dalife:interest:career"],
+  "hasTopic": "urn:dalife:topic:agents",
   "mentionsConcept": [
-    "urn:darchive:concept:hiring",
-    "urn:darchive:concept:field-engineering"
+    "urn:dalife:concept:hiring",
+    "urn:dalife:concept:field-engineering"
   ],
   "makesClaim": [
-    "urn:darchive:claim:<archive-id>-1",
-    "urn:darchive:claim:<archive-id>-2"
+    "urn:dalife:claim:<archive-id>-1",
+    "urn:dalife:claim:<archive-id>-2"
   ]
 }
 ```
@@ -176,14 +176,14 @@ Lightweight JSON-LD shape:
 1. Keep SQLite as source of truth for ingestion and processing state.
 2. Rebuild the pyoxigraph semantic store from validated archive rows.
 3. Keep portable JSON-LD/N-Quads export available:
-   - `darchive graph sync`
-   - `darchive graph stats`
-   - `darchive graph store-export`
-   - `darchive graph export`
-   - `darchive graph query`
-   - `darchive concepts`
-   - `darchive interests`
-   - `darchive related <capture-id>`
+   - `dalife graph sync`
+   - `dalife graph stats`
+   - `dalife graph store-export`
+   - `dalife graph export`
+   - `dalife graph query`
+   - `dalife concepts`
+   - `dalife interests`
+   - `dalife related <capture-id>`
 4. Use graph facts to select candidates for related captures and recurring themes.
 5. Build graph/readiness commands before insight synthesis.
 6. Add higher-level Viewpoint Layer commands only after the graph has enough real captures to make relation discovery useful.

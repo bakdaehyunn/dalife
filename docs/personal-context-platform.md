@@ -1,7 +1,7 @@
 # Personal context platform migration plan
 
 This document defines the target shape for merging Momukbot and Honsanam Reminder
-into Darchivebot. Darchivebot becomes the canonical repository and runtime while
+into DaLife. DaLife becomes the canonical repository and runtime while
 the old repositories stay available until they are explicitly archived or deleted.
 
 ## Goal
@@ -19,7 +19,7 @@ are verified with tests.
 
 ## Canonical boundaries
 
-The existing Darchivebot boundaries remain the spine of the merged project.
+The existing DaLife boundaries remain the spine of the merged project.
 
 ```text
 CLI / Telegram / Web / Scheduler adapters
@@ -32,7 +32,7 @@ CLI / Telegram / Web / Scheduler adapters
 
 The domain layer is split by cohesion:
 
-- `archive`: current Darchive capture, archive, search, insight, and graph behavior.
+- `archive`: current DaLife capture, archive, search, insight, and graph behavior.
 - `food`: Momukbot-derived place search, evidence collection, ranking, personalization,
   and recommendation formatting.
 - `life`: Honsanam-derived routines, reminder scheduling, confirmations, and interaction
@@ -112,7 +112,7 @@ Recommendation:
 
 ## Life reminder redesign
 
-Honsanam Reminder should become a life domain inside Darchivebot rather than a
+Honsanam Reminder should become a life domain inside DaLife rather than a
 separate process forever.
 
 Migration order:
@@ -122,7 +122,7 @@ Migration order:
    wrappers or aliases.
 3. Keep Telegram callback payloads compatible until old pending messages age out.
 4. Move JSON state into SQLite with an idempotent importer.
-5. Replace separate launchd jobs with one Darchive scheduler only after sender and
+5. Replace separate launchd jobs with one DaLife scheduler only after sender and
    reply watcher behavior is verified.
 
 ## Course domain
@@ -147,15 +147,15 @@ The course domain needs explicit evidence links so every recommendation can answ
 
 ## Compatibility strategy
 
-Use Darchivebot as canonical code, but migrate behavior in small slices:
+Use DaLife as canonical code, but migrate behavior in small slices:
 
 1. Add domain packages and target docs.
 2. Add compatibility tests that lock current public commands and Telegram flows.
-3. Copy selected source modules into Darchivebot with minimal adaptation.
+3. Copy selected source modules into DaLife with minimal adaptation.
 4. Replace direct file state with ports and repositories.
 5. Introduce SQLite tables and importers.
 6. Switch CLI/Telegram adapters to the new domain services.
-7. Retire old launchd jobs only after Darchive scheduled flows pass verification.
+7. Retire old launchd jobs only after DaLife scheduled flows pass verification.
 
 Do not use git subtree or repository archiving as the first step. Momukbot currently
 has relevant uncommitted quality work, and the old repositories should remain
@@ -169,11 +169,11 @@ After each meaningful refactor:
 - run CLI compatibility tests for any command routing change,
 - run Telegram tests for any callback or polling change,
 - run import-cycle checks after package-level boundary changes,
-- run the full Darchivebot test suite before committing or pushing.
+- run the full DaLife test suite before committing or pushing.
 
 The migration is complete only when:
 
-- Darchivebot can run archive, food, life, and course flows from one repo,
+- DaLife can run archive, food, life, and course flows from one repo,
 - public command compatibility is documented and tested,
 - old Telegram behavior has a verified replacement,
 - source repos are no longer needed for daily operation,
@@ -181,7 +181,7 @@ The migration is complete only when:
 
 ## Current implementation status
 
-Implemented in the Darchivebot integration branch:
+Implemented in the DaLife integration branch:
 
 - domain packages for archive, food, life, and course,
 - shared SQLite tables for places, evidence, query ledger, reminders, feedback,
@@ -191,13 +191,13 @@ Implemented in the Darchivebot integration branch:
 - deterministic food request parsing, collection planning, and food place ranking
   primitives,
 - Honsanam-compatible default reminder catalog, schedule calculation, and native
-  `darchive life list/next/preview` read commands,
+  `dalife life list/next/preview` read commands,
 - deterministic course composition from due life events, ranked food places, and
   archive items,
 - SQLite-backed course context loading that supplies those three inputs to both the
   CLI and feature-gated Telegram course handler, while rendering archive metadata
   only and never raw capture text,
-- grouped `darchive archive`, `darchive food`, `darchive life`, and `darchive course`
+- grouped `dalife archive`, `dalife food`, `dalife life`, and `dalife course`
   command surfaces for archive compatibility, dry-run/read-only planning, and local
   persistence smoke tests,
 - temporary `momuk` and `honsanam-reminder` console-script wrappers that route
@@ -216,18 +216,18 @@ Implemented in the Darchivebot integration branch:
 - feature-gated native Telegram life schedule queries and course planning, with
   course plans loaded from persisted food, due reminder, and archive metadata
   context,
-- SQLite-backed local food recommendation loading and `darchive food recommend-local`,
+- SQLite-backed local food recommendation loading and `dalife food recommend-local`,
   which ranks stored places/evidence/feedback without provider or LLM calls,
 - native Kakao Local and Naver Blog batch adapters, balanced due-query execution,
   provider daily quota accounting, failure backoff, and cross-order evidence
-  reconciliation behind `darchive food run-collection`,
+  reconciliation behind `dalife food run-collection`,
 - immutable per-execution provider quota records and selective exact-place refresh
   planning from explicitly scoped legacy recommendation history,
-- an idempotent Honsanam JSON-state importer and `darchive life import-honsanam`,
+- an idempotent Honsanam JSON-state importer and `dalife life import-honsanam`,
   covering reminder configuration, sent occurrences, interactions, confirmations,
   and legacy Telegram update offsets,
 - SQLite-derived fixed and custom reminder scheduling, an idempotent native
-  `darchive life run-once` sender, retryable delivery failures, confirmation
+  `dalife life run-once` sender, retryable delivery failures, confirmation
   follow-ups, and native plus legacy Telegram callback state transitions,
 - SQLite-backed life reminder list/show/enable/disable/add/update/remove/validate,
   pending-confirmation, interaction-history, and manual-answer commands, with the
@@ -237,33 +237,28 @@ Implemented in the Darchivebot integration branch:
   while superseding stale pending occurrences before native delivery,
 - shared SQLite application settings and native life message-pattern import,
   show/update, preview, delivery, and Telegram rendering,
-- configurable life scheduling timezone through `DARCHIVE_LIFE_TIMEZONE`, retaining
+- configurable life scheduling timezone through `DALIFE_LIFE_TIMEZONE`, retaining
   `Asia/Seoul` as the compatibility default,
-- a unified scheduler plan, `darchive schedule plan` inspection command, and a
+- a unified scheduler plan, `dalife schedule plan` inspection command, and a
   launchd plist generator that installs only enabled executable jobs from that
   scheduler plan.
-- a read-only `darchive schedule cutover-check` audit covering legacy agent
+- a read-only `dalife schedule cutover-check` audit covering legacy agent
   overlap, native Telegram routing, life sender activation, and SQLite
   confirmation backlog before live migration.
 - explicit opt-in generation of the native life sender plist through
   `--include-life-sender`; default launchd installation continues to exclude it,
-- completed live cutover to the former Momuk shared Telegram room: native Darchive
+- completed live cutover to the former Momuk shared Telegram room: native DaLife
   routing and life delivery are loaded, while the Momuk poller and both Honsanam
   launchd agents are stopped and disabled,
 - controlled shared-room delivery, synchronized command menus, online diagnostics,
   and a blocker-free `schedule cutover-check` after activation,
-- moved notices in both legacy repositories identifying Darchivebot as the canonical
+- moved notices in both legacy repositories identifying DaLife as the canonical
   implementation and the old repositories as rollback references.
 
-Not yet migrated:
+Post-migration status:
 
-- Momukbot legacy event-log/history commands and its standalone setup/room command
-  surface; recommendation parsing and the normal `momuk recommend` compatibility
-  path are native,
-- Honsanam standalone setup and `poll-replies` command surfaces; initialization,
-  online diagnostics, discovery, test sending, schedule management, message
-  patterns, dispatch, and state queries route natively,
-- removal of compatibility wrappers and legacy callback handling; they remain in
-  place for rollback and public CLI compatibility,
-- GitHub archive-state changes for the old repositories; the local environment does
-  not currently have an authenticated GitHub CLI available.
+- Momukbot and Honsanam compatibility executables have been removed; all active
+  command and Telegram flows use DaLife directly,
+- both old GitHub repositories are archived and retained only as historical sources,
+- legacy callback parsing remains only where needed to close already-issued Telegram
+  buttons; it is not an alternate runtime or command surface.

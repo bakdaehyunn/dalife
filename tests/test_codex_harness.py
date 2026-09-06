@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from darchivebot.codex_harness import PROMPT, ensure_capture_schema, validate_codex_item
+from dalife.codex_harness import PROMPT, ensure_capture_schema, validate_codex_item
 
 
 def test_ensure_capture_schema_writes_required_schema(tmp_path):

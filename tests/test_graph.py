@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from darchivebot.graph import default_graph_path, export_graph
-from darchivebot.storage import ArchiveStore
+from dalife.graph import default_graph_path, export_graph
+from dalife.storage import ArchiveStore
 
 
 def test_export_graph_writes_jsonld_from_archive_items(tmp_path):
@@ -44,7 +44,7 @@ def test_export_graph_writes_jsonld_from_archive_items(tmp_path):
             "needs_review": False,
         },
     )
-    output_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    output_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
 
     result = export_graph(store, output_path)
 
@@ -62,14 +62,14 @@ def test_export_graph_writes_jsonld_from_archive_items(tmp_path):
     assert payload["metadata"]["archive_items"] == 1
     assert payload["metadata"]["nodes"] == len(graph)
     assert payload["metadata"]["export_scope"] == "lightweight_jsonld"
-    assert payload["@context"]["darch"] == "https://darchivebot.local/ontology#"
+    assert payload["@context"]["darch"] == "https://dalife.local/ontology#"
     assert any(node["@type"] == "darch:Capture" for node in graph)
     archive_nodes = [node for node in graph if node["@type"] == "darch:ArchiveItem"]
     assert archive_nodes[0]["title"] == "AI archive idea"
     assert "darch:rawExtractedText" not in archive_nodes[0]
-    assert archive_nodes[0]["hasInterest"] == "urn:darchive:interest:ai"
-    assert archive_nodes[0]["hasSecondaryInterest"] == ["urn:darchive:interest:career"]
-    assert archive_nodes[0]["hasTopic"] == "urn:darchive:topic:personal-knowledge-graph"
+    assert archive_nodes[0]["hasInterest"] == "urn:dalife:interest:ai"
+    assert archive_nodes[0]["hasSecondaryInterest"] == ["urn:dalife:interest:career"]
+    assert archive_nodes[0]["hasTopic"] == "urn:dalife:topic:personal-knowledge-graph"
     assert archive_nodes[0]["makesClaim"]
     assert any(node["@type"] == "darch:Claim" for node in graph)
 
@@ -104,7 +104,7 @@ def test_export_graph_includes_normalized_questions_and_relation_candidates(tmp_
             "needs_review": False,
         },
     )
-    output_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    output_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
 
     export_graph(store, output_path)
 
@@ -148,7 +148,7 @@ def test_export_graph_can_include_raw_text_explicitly(tmp_path):
             "needs_review": False,
         },
     )
-    output_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    output_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
 
     result = export_graph(store, output_path, include_raw_text=True)
 
@@ -159,4 +159,4 @@ def test_export_graph_can_include_raw_text_explicitly(tmp_path):
 
 
 def test_default_graph_path_stays_under_local_graph(tmp_path):
-    assert default_graph_path(tmp_path) == tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    assert default_graph_path(tmp_path) == tmp_path / ".local" / "graph" / "dalife.jsonld"

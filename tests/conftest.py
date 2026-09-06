@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from darchivebot.config import Settings
+from dalife.config import Settings
 
 
 def make_settings(root: Path, *, codex_enabled: bool = True) -> Settings:

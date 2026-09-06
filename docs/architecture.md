@@ -1,17 +1,17 @@
-# 다카이브봇 아키텍처
+# DaLife 아키텍처
 
-다카이브봇은 Telegram을 개인 캡처함으로 쓰고, 로컬 SQLite를 영구 저장소로 쓰는 개인 아카이브 봇입니다.
+DaLife은 Telegram을 개인 캡처함으로 쓰고, 로컬 SQLite를 영구 저장소로 쓰는 개인 아카이브 봇입니다.
 
 ## 흐름
 
 ```text
 Telegram message/photo/document
-  -> darchive telegram
+  -> dalife telegram
   -> captures/capture_files SQLite rows
   -> downloaded media under .local/captures/
 
 launchd/cron
-  -> darchive process --export-graph
+  -> dalife process --export-graph
   -> pending capture packet, or retryable failure whose backoff has expired
   -> codex exec with JSON Schema
   -> validated archive_items/extracted_texts SQLite rows
@@ -19,19 +19,19 @@ launchd/cron
   -> generated SQLite FTS5 search index from validated archive rows
   -> if any capture was processed, rebuild semantic graph from validated archive_items SQLite rows
   -> RDF store under .local/graph/semantic-store/
-  -> lightweight JSON-LD export under .local/graph/darchivebot.jsonld
+  -> lightweight JSON-LD export under .local/graph/dalife.jsonld
 
 daily retrieval
-  -> darchive search
-  -> darchive review
-  -> darchive web on 127.0.0.1
+  -> dalife search
+  -> dalife review
+  -> dalife web on 127.0.0.1
   -> archive detail, matched fields, related captures, insight notes
 
 manual graph inspection
-  -> darchive graph sync
-  -> darchive graph stats
-  -> darchive graph export
-  -> darchive graph store-export
+  -> dalife graph sync
+  -> dalife graph stats
+  -> dalife graph export
+  -> dalife graph store-export
 
 future Viewpoint Layer
   -> graph/readiness inspection

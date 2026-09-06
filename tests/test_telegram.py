@@ -4,8 +4,8 @@ from pathlib import Path
 from dataclasses import replace
 from typing import Any
 
-from darchivebot.storage import ArchiveStore
-from darchivebot.telegram import TelegramCaptureBot, extract_attachments, is_capturable_message, parse_command, send_bot_prompt
+from dalife.storage import ArchiveStore
+from dalife.telegram import TelegramCaptureBot, extract_attachments, is_capturable_message, parse_command, send_bot_prompt
 
 from conftest import make_settings
 
@@ -40,7 +40,7 @@ class FakeTelegramApi:
 
 
 def test_parse_command_handles_bot_suffix():
-    assert parse_command("/chatid@darchivebot hello") == "/chatid"
+    assert parse_command("/chatid@dalife hello") == "/chatid"
     assert parse_command("hello") == ""
 
 
@@ -200,7 +200,7 @@ def test_enabled_native_life_intent_uses_life_handler_without_archive_capture(
     store = ArchiveStore(settings.state_dir)
     api = FakeTelegramApi()
     monkeypatch.setattr(
-        "darchivebot.telegram.upcoming_life_for_telegram",
+        "dalife.telegram.upcoming_life_for_telegram",
         lambda store, text, now: "예정된 생활 알림",
     )
     bot = TelegramCaptureBot(settings, store, api=api)  # type: ignore[arg-type]

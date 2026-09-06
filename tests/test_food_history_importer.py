@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from darchivebot.domains.food import build_momuk_history_refresh_plan, import_momuk_history
-from darchivebot.persistence.momuk_legacy_reader import read_legacy_momuk_recommendations
-from darchivebot.storage import ArchiveStore
+from dalife.domains.food import build_momuk_history_refresh_plan, import_momuk_history
+from dalife.persistence.momuk_legacy_reader import read_legacy_momuk_recommendations
+from dalife.storage import ArchiveStore
 
 
 def legacy_rows() -> list[dict[str, object]]:

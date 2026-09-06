@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_add_capture_is_idempotent(tmp_path):

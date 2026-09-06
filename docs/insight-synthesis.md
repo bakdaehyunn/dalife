@@ -1,6 +1,6 @@
 # Insight synthesis design
 
-This document defines one implementation track inside 다카이브봇's Viewpoint Layer. It is a design only; it does not authorize migrations or implementation by itself.
+This document defines one implementation track inside DaLife's Viewpoint Layer. It is a design only; it does not authorize migrations or implementation by itself.
 
 ## Product purpose
 
@@ -246,9 +246,9 @@ Start with commands that inspect before automating.
 ### Related captures
 
 ```bash
-darchive related <capture-id>
-darchive related <capture-id> --json
-darchive related generate --limit 20
+dalife related <capture-id>
+dalife related <capture-id> --json
+dalife related generate --limit 20
 ```
 
 Expected use:
@@ -258,12 +258,12 @@ Expected use:
 ### Insight notes
 
 ```bash
-darchive insights
-darchive insights generate --period weekly
-darchive insights generate --period weekly --dry-run
-darchive insights generate --period monthly
-darchive insights show <insight-id>
-darchive insights show <insight-id> --json
+dalife insights
+dalife insights generate --period weekly
+dalife insights generate --period weekly --dry-run
+dalife insights generate --period monthly
+dalife insights show <insight-id>
+dalife insights show <insight-id> --json
 ```
 
 Expected use:
@@ -276,8 +276,8 @@ Expected use:
 Themes can start as part of `insights show`. A separate command can come later:
 
 ```bash
-darchive themes
-darchive themes show <theme-id>
+dalife themes
+dalife themes show <theme-id>
 ```
 
 Do not add Telegram output until local CLI review is useful.
@@ -286,10 +286,10 @@ Do not add Telegram output until local CLI review is useful.
 
 The first implementation is intentionally local and inspect-first:
 
-- `darchive insights` lists locally stored draft notes.
-- `darchive insights generate --period weekly --dry-run` previews the note without writing SQLite rows.
-- `darchive insights generate --period weekly` writes a draft `insight_notes` row and evidence rows in `insight_note_items`.
-- `darchive insights show <insight-id>` shows the note and the archive items used as evidence.
+- `dalife insights` lists locally stored draft notes.
+- `dalife insights generate --period weekly --dry-run` previews the note without writing SQLite rows.
+- `dalife insights generate --period weekly` writes a draft `insight_notes` row and evidence rows in `insight_note_items`.
+- `dalife insights show <insight-id>` shows the note and the archive items used as evidence.
 
 This first implementation uses validated SQLite archive rows and local graph/readiness signals. It does not call Telegram, does not send summaries, and does not include raw extracted text by default. It uses only processed archive items and excludes `needs_review` items unless explicitly requested.
 
@@ -350,21 +350,21 @@ Recommended defaults for first implementation:
 
 Before generating insight notes, use graph and archive readiness commands:
 
-- `darchive interests`
-- `darchive concepts`
-- `darchive graph quality`
-- `darchive reprocess-plan`
-- read-only `darchive related <capture-id>`
+- `dalife interests`
+- `dalife concepts`
+- `dalife graph quality`
+- `dalife reprocess-plan`
+- read-only `dalife related <capture-id>`
 
 These commands should show whether the archive has enough useful interests, topics, concepts, insight seeds, questions, and relation candidates for synthesis.
-When `darchive reprocess-plan` finds weak or fallback-processed archive items, repair those rows before generating themes or notes. Otherwise the synthesis layer will amplify poor classification instead of building on the user's real interests.
+When `dalife reprocess-plan` finds weak or fallback-processed archive items, repair those rows before generating themes or notes. Otherwise the synthesis layer will amplify poor classification instead of building on the user's real interests.
 
 ## Later implementation goal
 
 Build the Telegram delivery layer only after local draft review is useful.
 
 Scope:
-- extend `darchive related` with generated relation candidates after the read-only local version proves useful
+- extend `dalife related` with generated relation candidates after the read-only local version proves useful
 - optionally add Codex-backed insight generation while keeping Python-only SQLite writes
 - add Telegram commands such as `/insights` or a weekly digest only after draft notes are useful locally
 - keep web UI, calendar, journal, and automation out of scope

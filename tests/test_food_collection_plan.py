@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import (
+from dalife.domains.food import (
     FoodCollectionArea,
     FoodCollectionFacet,
     build_food_collection_plan,
     persist_food_collection_plan,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_food_collection_plan_respects_daily_quota_limit():

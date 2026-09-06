@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import (
+from dalife.domains.food import (
     EvidenceTier,
     FoodEvidence,
     FoodPlace,
@@ -8,7 +8,7 @@ from darchivebot.domains.food import (
     PlaceRanker,
     persist_food_recommendation_session,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_persist_food_recommendation_session_records_ranked_candidates(tmp_path):

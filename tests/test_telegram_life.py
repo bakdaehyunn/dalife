@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from darchivebot.domains.life import kst_datetime
-from darchivebot.storage import ArchiveStore
-from darchivebot.telegram_life import upcoming_life_for_telegram
+from dalife.domains.life import kst_datetime
+from dalife.storage import ArchiveStore
+from dalife.telegram_life import upcoming_life_for_telegram
 
 
 def test_upcoming_life_telegram_reads_custom_schedule_from_sqlite(tmp_path):

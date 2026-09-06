@@ -16,15 +16,15 @@ def test_gitignore_covers_private_runtime_files():
 
 def test_launchd_scripts_reference_bot_and_processor():
     install = (ROOT / "scripts" / "install_launch_agent.sh").read_text(encoding="utf-8")
-    launchd = (ROOT / "src" / "darchivebot" / "launchd.py").read_text(encoding="utf-8")
-    assert "python\" -m darchivebot.launchd install" in install
+    launchd = (ROOT / "src" / "dalife" / "launchd.py").read_text(encoding="utf-8")
+    assert "python\" -m dalife.launchd install" in install
     assert "launchd_schedule" in launchd
-    assert "com.hennei.darchivebot.telegram" in launchd
-    assert "com.hennei.darchivebot.processor" in launchd
-    assert "com.hennei.darchivebot.food-collect" in launchd
-    assert "com.hennei.darchivebot.digest" in launchd
-    assert "com.hennei.darchivebot.digest.project-seed" in launchd
-    assert "com.hennei.darchivebot.digest.weekly" in launchd
+    assert "com.hennei.dalife.telegram" in launchd
+    assert "com.hennei.dalife.processor" in launchd
+    assert "com.hennei.dalife.food-collect" in launchd
+    assert "com.hennei.dalife.digest" in launchd
+    assert "com.hennei.dalife.digest.project-seed" in launchd
+    assert "com.hennei.dalife.digest.weekly" in launchd
     assert '"telegram"' in launchd
     assert "ProgramArguments" in launchd
     assert "job.command" in launchd
@@ -52,17 +52,17 @@ def test_readme_frames_product_as_interest_aware_archive_without_mvp_language():
     assert "`course`" in text
     assert "momuk" in text
     assert "honsanam-reminder" in text
-    assert "darchive archive list" in text
-    assert "darchive food parse" in text
-    assert "darchive food plan-collection" in text
-    assert "darchive life list" in text
-    assert "darchive life next" in text
-    assert "darchive life preview" in text
-    assert "darchive course plan" in text
-    assert "darchive schedule plan" in text
+    assert "dalife archive list" in text
+    assert "dalife food parse" in text
+    assert "dalife food plan-collection" in text
+    assert "dalife life list" in text
+    assert "dalife life next" in text
+    assert "dalife life preview" in text
+    assert "dalife course plan" in text
+    assert "dalife schedule plan" in text
     assert "Viewpoint Layer" in text
     assert "insight seed" in text
-    assert "darchive insights generate --period weekly" in text
+    assert "dalife insights generate --period weekly" in text
     assert "failed_blocked" in text
     assert "archive interpretation history" in text
     assert "docs/viewpoint-layer.md" in text
@@ -79,15 +79,15 @@ def test_viewpoint_layer_docs_define_final_product_layer():
     assert "Viewpoint Layer" in text
     assert "SQLite remains the operational source of truth" in text
     assert "Raw text is excluded from normal graph and viewpoint outputs" in text
-    assert "add `darchive graph quality`" in text
-    assert "darchive reprocess --capture-id <capture-id>" in text
+    assert "add `dalife graph quality`" in text
+    assert "dalife reprocess --capture-id <capture-id>" in text
     assert "interpretation history" in text
     assert "actual archive rewrites should remain a separate" not in text
 
 
 def test_ontology_graph_docs_define_semantic_store_with_lightweight_jsonld_export():
     text = (ROOT / "docs" / "ontology-graph.md").read_text(encoding="utf-8")
-    assert ".local/graph/darchivebot.jsonld" in text
+    assert ".local/graph/dalife.jsonld" in text
     assert ".local/graph/semantic-store/" in text
     assert "lightweight portable export" in text
     assert "not a complete backup of every RDF fact" in text
@@ -102,7 +102,7 @@ def test_ontology_graph_docs_define_semantic_store_with_lightweight_jsonld_expor
 
 def test_personal_context_platform_docs_define_canonical_migration_boundaries():
     text = (ROOT / "docs" / "personal-context-platform.md").read_text(encoding="utf-8")
-    assert "Darchivebot becomes the canonical repository" in text
+    assert "DaLife becomes the canonical repository" in text
     assert "SQLite remains the operational source of truth" in text
     assert "`archive`" in text
     assert "`food`" in text
@@ -110,29 +110,29 @@ def test_personal_context_platform_docs_define_canonical_migration_boundaries():
     assert "`course`" in text
     assert "derived search index and graph exports" in text
     assert "Do not use git subtree or repository archiving as the first step" in text
-    assert "darchive archive" in text
-    assert "darchive schedule plan" in text
+    assert "dalife archive" in text
+    assert "dalife schedule plan" in text
 
 
-def test_source_migration_docs_capture_public_compatibility_surfaces():
+def test_source_migration_docs_capture_final_dalife_command_surface():
     momuk = (ROOT / "docs" / "migrations" / "momukbot.md").read_text(encoding="utf-8")
     honsanam = (ROOT / "docs" / "migrations" / "honsanam-reminder-bot.md").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert "Target domain: `darchivebot.domains.food`" in momuk
+    assert "Target domain: `dalife.domains.food`" in momuk
     assert "momuk recommend" in momuk
     assert "momuk telegram" in momuk
     assert "KAKAO_REST_API_KEY" in momuk
     assert "NAVER_DAILY_SOFT_LIMIT" in momuk
     assert "has uncommitted recommendation-quality work" in momuk
-    assert "DARCHIVE_MOMUK_CLI" in momuk
+    assert "temporary `momuk` compatibility executable has been removed" in momuk
 
-    assert "Target domain: `darchivebot.domains.life`" in honsanam
+    assert "Target domain: `dalife.domains.life`" in honsanam
     assert "honsanam-reminder run-once" in honsanam
     assert "honsanam-reminder poll-replies --watch" in honsanam
     assert "TELEGRAM_REMINDER_CHAT_ID" in honsanam
     assert "stale" in honsanam
-    assert "DARCHIVE_HONSANAM_REMINDER_CLI" in honsanam
+    assert "temporary `honsanam-reminder` compatibility executable has been removed" in honsanam
 
-    assert 'momuk = "darchivebot.compat_cli:momuk_main"' in pyproject
-    assert 'honsanam-reminder = "darchivebot.compat_cli:honsanam_reminder_main"' in pyproject
+    assert 'dalife = "dalife.cli:main"' in pyproject
+    assert "compat_cli" not in pyproject

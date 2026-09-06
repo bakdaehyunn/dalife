@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from darchivebot.bot_prompts import (
+from dalife.bot_prompts import (
     create_post_process_prompt,
     create_project_seed_digest_prompt,
     create_revisit_digest_prompt,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_post_process_prompt_created_for_low_confidence_archive_item(tmp_path):

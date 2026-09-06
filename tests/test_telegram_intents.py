@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from darchivebot.telegram_intents import TelegramIntent, classify_telegram_update
+from dalife.telegram_intents import TelegramIntent, classify_telegram_update
 
 
 def test_classify_callback_as_feedback_intent():
@@ -11,7 +11,7 @@ def test_classify_callback_as_feedback_intent():
 
 
 def test_classify_command_as_admin_command_intent():
-    decision = classify_telegram_update({"message": {"text": "/chatid@darchivebot hello"}})
+    decision = classify_telegram_update({"message": {"text": "/chatid@dalife hello"}})
 
     assert decision.intent == TelegramIntent.ADMIN_COMMAND
     assert decision.command == "/chatid"

@@ -4,19 +4,19 @@ import json
 from dataclasses import replace
 from typing import Any
 
-from darchivebot import cli
-from darchivebot.cli import main
-from darchivebot.config import Settings, read_env_values
-from darchivebot.storage import ArchiveStore
+from dalife import cli
+from dalife.cli import main
+from dalife.config import Settings, read_env_values
+from dalife.storage import ArchiveStore
 
 
 def test_doctor_offline_allows_missing_telegram_token(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
-    monkeypatch.setenv("DARCHIVE_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("DARCHIVE_MEDIA_DIR", str(tmp_path / "captures"))
-    monkeypatch.setenv("DARCHIVE_LOG_DIR", str(tmp_path / "logs"))
-    monkeypatch.setenv("DARCHIVE_CODEX_BIN", "python3")
-    monkeypatch.setenv("DARCHIVE_CODEX_ENABLED", "false")
+    monkeypatch.setenv("DALIFE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("DALIFE_MEDIA_DIR", str(tmp_path / "captures"))
+    monkeypatch.setenv("DALIFE_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("DALIFE_CODEX_BIN", "python3")
+    monkeypatch.setenv("DALIFE_CODEX_ENABLED", "false")
 
     assert main(["doctor"]) == 0
     output = capsys.readouterr().out
@@ -92,7 +92,7 @@ def test_setup_accepts_momuk_provider_options_without_printing_secrets(tmp_path,
     values = read_env_values(env_file)
     assert values["KAKAO_REST_API_KEY"] == "kakao-secret"
     assert values["NAVER_CLIENT_SECRET"] == "naver-secret"
-    assert values["DARCHIVE_CODEX_BIN"] == "/opt/local/bin/codex"
+    assert values["DALIFE_CODEX_BIN"] == "/opt/local/bin/codex"
     output = capsys.readouterr().out
     assert "telegram-secret" not in output
     assert "kakao-secret" not in output
@@ -113,14 +113,14 @@ def test_rooms_reports_registered_room(tmp_path, capsys, monkeypatch):
     settings = make_cli_settings(tmp_path, chat_ids=())
     settings.state_dir.mkdir(parents=True)
     (settings.state_dir / "telegram_rooms.json").write_text(
-        json.dumps({"darchive_chat_id": "-100123", "darchive_chat_title": "archive"}),
+        json.dumps({"dalife_chat_id": "-100123", "dalife_chat_title": "archive"}),
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
 
     assert main(["rooms"]) == 0
     output = capsys.readouterr().out
-    assert "darchive_chat_id=***0123" in output
+    assert "dalife_chat_id=***0123" in output
     assert "allowed=yes" in output
 
 
@@ -607,7 +607,7 @@ def test_reprocess_selected_capture_refreshes_graph_after_success(tmp_path, monk
     assert after["core_summary"] == "Selected actual"
     assert after["primary_interest"] == "other/unknown"
     assert (tmp_path / ".local" / "graph" / "semantic-store").exists()
-    assert (tmp_path / ".local" / "graph" / "darchivebot.jsonld").exists()
+    assert (tmp_path / ".local" / "graph" / "dalife.jsonld").exists()
 
 
 def test_related_uses_read_only_shared_archive_signals(tmp_path, monkeypatch, capsys):
@@ -822,7 +822,7 @@ def test_food_import_provider_config_copies_known_keys_without_printing_secrets(
     output = capsys.readouterr().out
     result = json.loads(output)
     assert result["imported_keys"] == [
-        "DARCHIVE_NAVER_DAILY_SOFT_LIMIT",
+        "DALIFE_NAVER_DAILY_SOFT_LIMIT",
         "NAVER_CLIENT_ID",
         "NAVER_CLIENT_SECRET",
     ]
@@ -847,7 +847,7 @@ def test_life_import_honsanam_command_supports_read_only_dry_run(tmp_path, monke
     assert result["reminders"] == 12
     assert result["sent_events"] == 0
     assert result["dry_run"] is True
-    assert not (settings.state_dir / "darchivebot.sqlite3").exists()
+    assert not (settings.state_dir / "dalife.sqlite3").exists()
 
 
 def test_life_preview_command_preserves_default_due_reminders(tmp_path, monkeypatch, capsys):
@@ -1109,7 +1109,7 @@ def test_schedule_plan_command_lists_unified_jobs(tmp_path, monkeypatch, capsys)
 
 
 def test_schedule_cutover_check_is_read_only_and_reports_blockers(tmp_path, monkeypatch, capsys):
-    from darchivebot.cutover import LaunchdSnapshot
+    from dalife.cutover import LaunchdSnapshot
 
     settings = make_cli_settings(tmp_path)
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
@@ -1288,7 +1288,7 @@ def test_show_displays_structured_archive_item(tmp_path, monkeypatch, capsys):
             "subtopic": "archive workflow",
             "classification_reason": "agent-based archive idea",
             "revisit_priority": "high",
-            "revisit_reason": "다카이브봇 제품 방향과 연결됨",
+            "revisit_reason": "DaLife 제품 방향과 연결됨",
             "insight_seed": "captures can become agent-readable knowledge",
             "dates_mentioned": [],
             "people_mentioned": [],
@@ -1376,7 +1376,7 @@ def test_graph_export_writes_jsonld_under_local_graph(tmp_path, monkeypatch, cap
     assert main(["graph", "export"]) == 0
 
     output = capsys.readouterr().out
-    graph_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    graph_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
     assert "exported 1 archive items" in output
     assert graph_path.exists()
     assert "darch:ArchiveItem" in graph_path.read_text(encoding="utf-8")
@@ -1416,7 +1416,7 @@ def test_graph_export_json_omits_raw_text_by_default(tmp_path, monkeypatch, caps
     assert main(["graph", "export", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    graph_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    graph_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
     graph_text = graph_path.read_text(encoding="utf-8")
     assert result["raw_text_included"] is False
     assert "darch:rawExtractedText" not in graph_text
@@ -1509,7 +1509,7 @@ def test_process_export_graph_refreshes_after_successful_processing(tmp_path, mo
 
     output = capsys.readouterr().out
     semantic_store_path = tmp_path / ".local" / "graph" / "semantic-store"
-    jsonld_graph_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    jsonld_graph_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
     assert "semantic graph synced 1 archive items" in output
     assert "jsonld graph exported 1 archive items" in output
     assert semantic_store_path.exists()
@@ -1526,7 +1526,7 @@ def test_process_export_graph_does_not_refresh_when_nothing_processed(tmp_path, 
 
     output = capsys.readouterr().out
     semantic_store_path = tmp_path / ".local" / "graph" / "semantic-store"
-    jsonld_graph_path = tmp_path / ".local" / "graph" / "darchivebot.jsonld"
+    jsonld_graph_path = tmp_path / ".local" / "graph" / "dalife.jsonld"
     assert output.strip() == "nothing to process"
     assert not semantic_store_path.exists()
     assert not jsonld_graph_path.exists()
@@ -1541,7 +1541,7 @@ def test_telegram_digest_dry_run_outputs_phone_prompt(tmp_path, monkeypatch, cap
         title="Phone-first archive workflow",
         primary_interest="product",
         secondary_interests=["AI"],
-        topic="darchive",
+        topic="dalife",
         tags=["telegram"],
         revisit_reason="turn this into a tap-based product loop",
     )
@@ -1566,7 +1566,7 @@ def test_telegram_digest_sends_once_per_prompt_key(tmp_path, monkeypatch, capsys
         title="Daily revisit candidate",
         primary_interest="product",
         secondary_interests=["AI"],
-        topic="darchive",
+        topic="dalife",
         tags=["telegram"],
         revisit_reason="review this today",
     )

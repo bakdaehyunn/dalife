@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from darchivebot.domains.food import (
+from dalife.domains.food import (
     CollectedEvidence,
     CollectedPlace,
     FoodCollectionRunner,
     diversify_due_queries,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 class FakeKakao:

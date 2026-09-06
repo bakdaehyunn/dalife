@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import (
+from dalife.domains.food import (
     EvidenceTier,
     FoodEvidence,
     FoodPlace,
     FoodRecommendationContext,
     PlaceRanker,
 )
-from darchivebot.domains.food.ranking import distance_score, evidence_score
+from dalife.domains.food.ranking import distance_score, evidence_score
 
 
 def test_place_ranker_prioritizes_evidence_and_personal_fit():

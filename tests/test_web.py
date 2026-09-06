@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from darchivebot.storage import ArchiveStore
-from darchivebot.web import render_capture_detail, render_home, render_review, render_search, serve_local_web
+from dalife.storage import ArchiveStore
+from dalife.web import render_capture_detail, render_home, render_review, render_search, serve_local_web
 
 
 def test_web_pages_render_search_review_and_detail(tmp_path):

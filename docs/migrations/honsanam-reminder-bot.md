@@ -2,7 +2,7 @@
 
 Source repository: `/Users/hennei/workspace/honsanam-reminder-bot`
 
-Target domain: `darchivebot.domains.life`
+Target domain: `dalife.domains.life`
 
 ## Current status
 
@@ -95,12 +95,12 @@ launchd reply watcher
 - Pending Telegram callback payloads must remain understandable after migration.
 - JSON state import must be idempotent.
 - Existing reminder IDs are user-facing and should remain stable.
-- Launchd sender and reply watcher must not double-send after Darchive scheduling is
+- Launchd sender and reply watcher must not double-send after DaLife scheduling is
   introduced.
 
 ## Target mapping
 
-Move into `darchivebot.domains.life` in stages:
+Move into `dalife.domains.life` in stages:
 
 - reminder definitions and schedule rules,
 - confirmation and interaction models,
@@ -118,9 +118,9 @@ code outside the domain.
 The canonical repo now provides an idempotent importer:
 
 ```text
-darchive life import-honsanam --root /path/to/honsanam-reminder-bot --dry-run
-darchive life import-honsanam --root /path/to/honsanam-reminder-bot
-darchive life run-once --dry-run --json
+dalife life import-honsanam --root /path/to/honsanam-reminder-bot --dry-run
+dalife life import-honsanam --root /path/to/honsanam-reminder-bot
+dalife life run-once --dry-run --json
 ```
 
 It imports the effective fixed and custom reminder definitions, `sent.json`,
@@ -135,54 +135,34 @@ the Telegram message ID, retries persisted failures, and schedules a configured
 follow-up after an `아직` response. The unified Telegram poller accepts both native
 `life:` callbacks and already-issued Honsanam `confirm:`/`interact:` callbacks.
 The `life-send` scheduler declaration is not launchd-managed yet, so installing the
-current Darchive launch agents cannot create duplicate life reminders.
+current DaLife launch agents cannot create duplicate life reminders.
 
-The local source state has been imported and refreshed idempotently in Darchive
+The local source state has been imported and refreshed idempotently in DaLife
 SQLite: 12 reminders, 138 sent keys, 95 interaction records, and 4 confirmation
 records. The legacy JSON files were not modified. The importer now supersedes older
 pending occurrences in the same confirmation stream: three historical haircut
 records are retained as `superseded`, while the latest September occurrence remains
 pending. The cutover audit therefore reports no overdue confirmations.
 
-## Compatibility wrapper
+## Final command surface
 
-Darchivebot exposes a temporary `honsanam-reminder` console script during migration.
-The following commands now route directly to the SQLite-backed Darchive life domain:
+The temporary `honsanam-reminder` compatibility executable has been removed. The
+following capabilities are available through the SQLite-backed `dalife life` domain:
 
 - `preview`, `next`, `run-once`, `pattern show/set`
 - `list`, `show`, `enable`, `disable`, `add custom`, `update`, `remove`, `validate`
 - `pending`, `interactions`, `answer`
 - `init`, `doctor`, `discover-chat`, `send-test`
 
-Setup invocations that only configure credentials, chat ID, and timezone now route
-to Darchive. Setup with `--install-launchd` and reply polling commands still
-delegate to the existing Honsanam source CLI:
+Setup, reply handling, delivery, and callback processing are owned by DaLife. The
+archived Honsanam repository remains a historical source, not a runtime fallback.
 
-- `/Users/hennei/workspace/honsanam-reminder-bot/.venv/bin/honsanam-reminder`
-- fallback: `/Users/hennei/workspace/honsanam-reminder-bot/.venv/bin/python -m life_reminder.cli`
-
-Set `DARCHIVE_HONSANAM_REMINDER_CLI` to override the delegated command path. The
-override also forces migrated commands through the legacy CLI for rollback. The
-Python-module fallback exists because the source repo currently has a stale pytest
-console-script shebang, and the same kind of virtualenv path drift should not block
-CLI compatibility during migration.
-
-## Remaining compatibility work
-
-- CLI command parser compatibility for existing `honsanam-reminder` commands.
-- Consolidate the remaining setup contract before removing the compatibility
-  wrapper. Reply polling is already handled by the unified
-  Darchive Telegram process but remains delegated as a standalone legacy command.
-- Perform a controlled live send and callback smoke test in the registered room.
-- Disable the legacy Honsanam launchd sender/reply jobs before enabling Darchive's
-  `life-send` launchd entry.
-
-Run `darchive schedule cutover-check --json` before a controlled cutover. The
+Run `dalife schedule cutover-check --json` before a controlled cutover. The
 audit is read-only and requires all of the following before it reports ready:
 
 - both legacy Honsanam sender and reply agents are stopped,
 - native personal Telegram routing is explicitly enabled,
-- the Darchive Telegram agent is loaded,
+- the DaLife Telegram agent is loaded,
 - the native life sender plist has been generated with the explicit
   `--include-life-sender` cutover flag,
 - no imported confirmation follow-ups are overdue.
@@ -193,16 +173,16 @@ Telegram behavior.
 
 Controlled cutover sequence (do not overlap senders):
 
-1. Run `darchive life run-once --dry-run` and review pending confirmations.
+1. Run `dalife life run-once --dry-run` and review pending confirmations.
 2. Generate, but do not load, the native sender definition with
-   `python -m darchivebot.launchd write <repo> --include-life-sender`.
+   `python -m dalife.launchd write <repo> --include-life-sender`.
 3. Stop the legacy sender and reply watcher.
-4. Set `DARCHIVE_NATIVE_PERSONAL_TELEGRAM=true` and restart the existing Darchive
+4. Set `DALIFE_NATIVE_PERSONAL_TELEGRAM=true` and restart the existing DaLife
    Telegram agent.
-5. Run `darchive schedule cutover-check`; proceed only when it reports `READY`.
-6. Load `com.hennei.darchivebot.life-send.plist`, then observe one scheduled cycle.
+5. Run `dalife schedule cutover-check`; proceed only when it reports `READY`.
+6. Load `com.hennei.dalife.life-send.plist`, then observe one scheduled cycle.
 
 Rollback is the reverse: unload the native life sender, restore the native-personal
-gate to `false`, restart Darchive Telegram, and reload the two unchanged legacy
+gate to `false`, restart DaLife Telegram, and reload the two unchanged legacy
 agents. SQLite imports are retained because they are idempotent migration state,
 not a reason to delete legacy JSON.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from darchivebot.domains.food import FOOD_FEEDBACK_CHOICES, FoodFeedback, FoodFeedbackAction, record_food_feedback
-from darchivebot.storage import ArchiveStore
+from dalife.domains.food import FOOD_FEEDBACK_CHOICES, FoodFeedback, FoodFeedbackAction, record_food_feedback
+from dalife.storage import ArchiveStore
 
 
 def test_food_feedback_actions_match_target_telegram_actions():

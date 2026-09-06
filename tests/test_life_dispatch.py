@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from darchivebot.domains.life import (
+from dalife.domains.life import (
     apply_life_callback,
     deliver_due_life_reminders,
     import_honsanam_snapshot,
@@ -11,8 +11,8 @@ from darchivebot.domains.life import (
     prepare_due_life_dispatches,
     preview_due_life_reminders,
 )
-from darchivebot.domains.life.importer import HonsanamSnapshot
-from darchivebot.storage import ArchiveStore
+from dalife.domains.life.importer import HonsanamSnapshot
+from dalife.storage import ArchiveStore
 
 
 class FakeLifeClient:

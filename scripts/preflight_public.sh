@@ -17,20 +17,20 @@ if [[ -n "$tracked_bad_files" ]]; then
   fail=1
 fi
 
-if rg -n 'TELEGRAM_BOT_TOKEN=[^{$[:space:]][^[:space:]]*|DARCHIVE_.*SECRET=[^{$[:space:]][^[:space:]]*|CODEX_API_KEY=[^{$[:space:]][^[:space:]]*' . \
+if rg -n 'TELEGRAM_BOT_TOKEN=[^{$[:space:]][^[:space:]]*|DALIFE_.*SECRET=[^{$[:space:]][^[:space:]]*|CODEX_API_KEY=[^{$[:space:]][^[:space:]]*' . \
   --glob '!.env.example' \
-  --glob '!scripts/preflight_public.sh' >/tmp/darchivebot-preflight-secrets.txt; then
+  --glob '!scripts/preflight_public.sh' >/tmp/dalife-preflight-secrets.txt; then
   echo "[FAIL] possible committed secrets found:"
-  cat /tmp/darchivebot-preflight-secrets.txt
+  cat /tmp/dalife-preflight-secrets.txt
   fail=1
 fi
 
-if rg -n '/Users/hennei/.+\.local|telegram_rooms\.json.+darchive_chat_id' . \
+if rg -n '/Users/hennei/.+\.local|telegram_rooms\.json.+dalife_chat_id' . \
   --glob '!scripts/preflight_public.sh' \
   --glob '!README.md' \
-  --glob '!docs/architecture.md' >/tmp/darchivebot-preflight-private-paths.txt; then
+  --glob '!docs/architecture.md' >/tmp/dalife-preflight-private-paths.txt; then
   echo "[FAIL] possible private runtime coupling found:"
-  cat /tmp/darchivebot-preflight-private-paths.txt
+  cat /tmp/dalife-preflight-private-paths.txt
   fail=1
 fi
 

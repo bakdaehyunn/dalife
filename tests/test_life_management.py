@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from darchivebot.domains.life import (
+from dalife.domains.life import (
     LifeValidationError,
     add_custom_reminder,
     load_message_pattern,
@@ -12,7 +12,7 @@ from darchivebot.domains.life import (
     update_message_pattern,
     validate_stored_reminders,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def test_custom_reminder_crud_is_sqlite_backed(tmp_path):

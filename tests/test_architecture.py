@@ -4,15 +4,15 @@ import ast
 from pathlib import Path
 
 
-PACKAGE = Path(__file__).parents[1] / "src" / "darchivebot"
+PACKAGE = Path(__file__).parents[1] / "src" / "dalife"
 
 
 def module_dependencies(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     dependencies: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("darchivebot."):
-            dependencies.add(node.module.removeprefix("darchivebot.").split(".", 1)[0])
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("dalife."):
+            dependencies.add(node.module.removeprefix("dalife.").split(".", 1)[0])
     return dependencies
 
 
@@ -72,10 +72,10 @@ def test_archive_store_is_a_thin_sql_free_compatibility_facade():
 
 
 def test_personal_context_domain_packages_are_importable():
-    import darchivebot.domains as domains
-    from darchivebot.domains.course import CoursePlan, CourseStop
-    from darchivebot.domains.food import EvidenceTier, FoodEvidence, FoodPlace, FoodRecommendationContext
-    from darchivebot.domains.life import LifeConfirmation, LifeReminder, ReminderCadence
+    import dalife.domains as domains
+    from dalife.domains.course import CoursePlan, CourseStop
+    from dalife.domains.food import EvidenceTier, FoodEvidence, FoodPlace, FoodRecommendationContext
+    from dalife.domains.life import LifeConfirmation, LifeReminder, ReminderCadence
 
     assert domains.DOMAIN_NAMES == ("archive", "food", "life", "course")
     assert EvidenceTier.VERIFIED.value == "verified"

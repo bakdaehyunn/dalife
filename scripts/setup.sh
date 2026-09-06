@@ -8,5 +8,5 @@ cd "$ROOT"
 "${PYTHON_BIN:-python3.12}" -m venv .venv
 .venv/bin/pip install -U pip
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/darchive init
-.venv/bin/darchive doctor
+.venv/bin/dalife init
+.venv/bin/dalife doctor

@@ -4,8 +4,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from darchivebot.doctor import run_doctor
-from darchivebot.storage import ArchiveStore
+from dalife.doctor import run_doctor
+from dalife.storage import ArchiveStore
 
 from conftest import make_settings
 
@@ -15,7 +15,7 @@ class FakeTelegramApi:
         self.commands = [{"command": "chatid", "description": "설정용 채팅방 ID 확인"}] if commands is None else commands
 
     def get_me(self) -> dict[str, object]:
-        return {"ok": True, "result": {"username": "darchivebot"}}
+        return {"ok": True, "result": {"username": "dalife"}}
 
     def get_my_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
         if scope is not None:
@@ -30,15 +30,15 @@ def test_doctor_reports_online_telegram_and_registered_room(tmp_path: Path) -> N
     settings = make_settings(tmp_path)
     settings.state_dir.mkdir(parents=True)
     (settings.state_dir / "telegram_rooms.json").write_text(
-        json.dumps({"darchive_chat_id": "-100123"}),
+        json.dumps({"dalife_chat_id": "-100123"}),
         encoding="utf-8",
     )
 
     code, text = run_doctor(settings, ArchiveStore(settings.state_dir), online=True, telegram_api=FakeTelegramApi())
 
     assert code == 0
-    assert "[OK] darchive_chat_id is registered: ***0123" in text
-    assert "[OK] Telegram getMe: @darchivebot" in text
+    assert "[OK] dalife_chat_id is registered: ***0123" in text
+    assert "[OK] Telegram getMe: @dalife" in text
     assert "[OK] Telegram registered chat command menu is synced" in text
 
 
@@ -50,7 +50,7 @@ def test_doctor_warns_when_commands_are_out_of_sync(tmp_path: Path) -> None:
 
     assert code == 0
     assert "Telegram default command menu is out of sync" in text
-    assert "darchive telegram-commands sync" in text
+    assert "dalife telegram-commands sync" in text
 
 
 def test_doctor_warns_about_group_privacy_and_409_conflicts(tmp_path: Path) -> None:

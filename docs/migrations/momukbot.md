@@ -2,12 +2,12 @@
 
 Source repository: `/Users/hennei/workspace/momukbot`
 
-Target domain: `darchivebot.domains.food`
+Target domain: `dalife.domains.food`
 
 ## Current status
 
 The Momukbot source repo has uncommitted recommendation-quality work. Preserve that
-state and do not overwrite or revert it during the Darchivebot migration.
+state and do not overwrite or revert it during the DaLife migration.
 
 Baseline verification observed before starting this migration plan:
 
@@ -105,12 +105,12 @@ local candidates.
   collection is only request-time.
 - Provider-specific matching, policy terms, and ranking rules are easy to couple
   unless they move behind domain policies and ports.
-- Existing Telegram room registration behavior must keep working until the Darchive
+- Existing Telegram room registration behavior must keep working until the DaLife
   Telegram adapter is verified.
 
 ## Target mapping
 
-Move into `darchivebot.domains.food` in stages:
+Move into `dalife.domains.food` in stages:
 
 - request parsing and recommendation intent policy,
 - Kakao and Naver provider adapters,
@@ -121,30 +121,19 @@ Move into `darchivebot.domains.food` in stages:
 
 Keep provider HTTP details out of the core ranking model. Store provider responses,
 query ledger rows, and reconciliation decisions in SQLite repositories under the
-shared Darchive persistence boundary.
+shared DaLife persistence boundary.
 
-## Compatibility wrapper
+## Final command surface
 
-Darchivebot exposes a temporary `momuk` console script during migration. `parse` and
-`recommend` now route directly to the native SQLite-backed Darchive food domain.
-Natural-language and `--area`/`--topic` forms are supported, and `--dry-run` does not
-persist a recommendation session.
-
-Initialization, configuration-only setup, online diagnostics, room status, chat
-discovery, test sending, Telegram command menu management, and unified quota status
-now route to Darchive. Setup with `--install-launchd`, the standalone Telegram
-daemon, event/quality-eval views, and destructive legacy history clearing continue
-to delegate to the existing Momukbot source CLI:
-
-- `/Users/hennei/workspace/momukbot/.venv/bin/momuk`
-- fallback: `/Users/hennei/workspace/momukbot/.venv/bin/python -m momukbot.cli`
-
-Set `DARCHIVE_MOMUK_CLI` to force all commands through the legacy CLI for rollback.
+The temporary `momuk` compatibility executable has been removed. Food parsing,
+collection, recommendation, feedback, provider setup, diagnostics, and quota status
+are available only through `dalife food ...` and the main `dalife` setup commands.
+The archived Momukbot repository remains a historical source, not a runtime fallback.
 
 ## Native collection status
 
-Darchive now owns standard-library Kakao Local and Naver Blog adapters behind food
-collection ports. `darchive food run-collection` balances due queries across provider,
+DaLife now owns standard-library Kakao Local and Naver Blog adapters behind food
+collection ports. `dalife food run-collection` balances due queries across provider,
 area, and facet, enforces provider daily soft limits from the SQLite ledger, stores all
 returned places and allowed blog evidence, and backs off failed queries independently.
 Evidence is reconciled to places regardless of which provider result arrives first.
@@ -153,8 +142,8 @@ Provider credentials can be moved without printing values or overwriting already
 target keys:
 
 ```text
-darchive food import-provider-config --source-env /path/to/momukbot/.env --dry-run
-darchive food import-provider-config --source-env /path/to/momukbot/.env
+dalife food import-provider-config --source-env /path/to/momukbot/.env --dry-run
+dalife food import-provider-config --source-env /path/to/momukbot/.env
 ```
 
 The unified scheduler declares a daily 03:00 collection run capped at 20 queries and
@@ -166,7 +155,7 @@ place by an unambiguous normalized-name match. Re-running the importer skips all
 previously recorded source row IDs. Historical raw model responses are not copied.
 
 Selected home-area and Itaewon history can seed exact-place refresh queries through
-`darchive food plan-history-refresh`. These remain collection targets until current
+`dalife food plan-history-refresh`. These remain collection targets until current
 Kakao and Naver evidence validates them; legacy frequency alone never promotes a
 place to verified status.
 
@@ -180,12 +169,10 @@ and from 634 to 1,062 evidence items. Subsequent SQLite-only checks returned 30
 ranked results for both the home area and Itaewon while retaining verified, partial,
 and discovery-candidate evidence tiers.
 
-## Remaining compatibility work
+## Remaining historical import work
 
 - Decide whether legacy event-log commands need import or can remain archived with
   the old repository. Recommendation SQLite history is imported idempotently with
-  `darchive food import-momuk-history`.
-- Keep launchd-installing setup delegated until the controlled Telegram cutover;
-  provider and Telegram configuration-only options are already canonical.
-- Run a controlled native Telegram recommendation and feedback smoke test before
-  enabling the personal Telegram migration flag.
+  `dalife food import-momuk-history`.
+- Legacy event-log data can be imported later if it proves useful; it is not required
+  by the DaLife runtime.

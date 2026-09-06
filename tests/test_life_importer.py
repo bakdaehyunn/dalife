@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from darchivebot.domains.life import (
+from dalife.domains.life import (
     import_honsanam_snapshot,
     load_honsanam_snapshot,
     load_message_pattern,
 )
-from darchivebot.storage import ArchiveStore
+from dalife.storage import ArchiveStore
 
 
 def _write_json(path, payload):
