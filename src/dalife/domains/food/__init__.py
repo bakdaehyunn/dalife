@@ -35,6 +35,16 @@ from dalife.domains.food.local_recommendations import (
     normalize_area_name,
     recommend_local_food,
 )
+from dalife.domains.food.learning import (
+    PROFILE_VERSION,
+    RANKER_VERSION,
+    build_preference_profile,
+    collection_report,
+    evaluate_recommendations,
+    haversine_meters,
+    persist_preference_profile,
+    zone_coverage,
+)
 from dalife.domains.food.models import (
     EvidenceTier,
     FoodEvidence,
@@ -82,4 +92,12 @@ __all__ = [
     "record_food_feedback",
     "normalize_area_name",
     "recommend_local_food",
+    "PROFILE_VERSION",
+    "RANKER_VERSION",
+    "build_preference_profile",
+    "collection_report",
+    "evaluate_recommendations",
+    "haversine_meters",
+    "persist_preference_profile",
+    "zone_coverage",
 ]

@@ -282,8 +282,73 @@ CREATE TABLE IF NOT EXISTS query_ledger_runs (
   quota_cost INTEGER NOT NULL,
   status TEXT NOT NULL,
   yielded_count INTEGER NOT NULL DEFAULT 0,
+  new_places_count INTEGER NOT NULL DEFAULT 0,
+  refreshed_places_count INTEGER NOT NULL DEFAULT 0,
+  new_evidence_count INTEGER NOT NULL DEFAULT 0,
+  duplicate_evidence_count INTEGER NOT NULL DEFAULT 0,
+  new_links_count INTEGER NOT NULL DEFAULT 0,
+  high_quality_links_count INTEGER NOT NULL DEFAULT 0,
+  unmatched_evidence_count INTEGER NOT NULL DEFAULT 0,
   failure_reason TEXT NOT NULL DEFAULT '',
   run_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mobility_zones (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL,
+  center_latitude REAL NOT NULL,
+  center_longitude REAL NOT NULL,
+  radius_meters INTEGER NOT NULL,
+  walk_minutes INTEGER,
+  transit_minutes INTEGER,
+  taxi_minutes INTEGER,
+  active_weekdays_json TEXT NOT NULL DEFAULT '[]',
+  active_time_windows_json TEXT NOT NULL DEFAULT '[]',
+  priority INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mobility_zone_areas (
+  zone_id TEXT NOT NULL REFERENCES mobility_zones(id) ON DELETE CASCADE,
+  area_id TEXT NOT NULL REFERENCES areas(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(zone_id, area_id)
+);
+
+CREATE TABLE IF NOT EXISTS preference_snapshots (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  features_json TEXT NOT NULL,
+  evidence_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_evaluations (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  metrics_json TEXT NOT NULL,
+  session_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS food_visit_followups (
+  id TEXT PRIMARY KEY,
+  followup_key TEXT NOT NULL UNIQUE,
+  recommendation_session_id TEXT NOT NULL REFERENCES recommendation_sessions(id) ON DELETE CASCADE,
+  place_id TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  candidate_rank INTEGER NOT NULL,
+  chat_id TEXT,
+  due_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  telegram_message_id TEXT,
+  created_at TEXT NOT NULL,
+  sent_at TEXT,
+  responded_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS routines (
@@ -408,6 +473,10 @@ CREATE INDEX IF NOT EXISTS idx_evidence_items_collected ON evidence_items(provid
 CREATE INDEX IF NOT EXISTS idx_place_evidence_place ON place_evidence(place_id, score);
 CREATE INDEX IF NOT EXISTS idx_query_ledger_due ON query_ledger(domain, provider, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_query_ledger_runs_provider_time ON query_ledger_runs(provider, run_at);
+CREATE INDEX IF NOT EXISTS idx_mobility_zone_areas_area ON mobility_zone_areas(area_id, zone_id);
+CREATE INDEX IF NOT EXISTS idx_preference_snapshots_domain_time ON preference_snapshots(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_recommendation_evaluations_domain_time ON recommendation_evaluations(domain, created_at);
+CREATE INDEX IF NOT EXISTS idx_food_visit_followups_due ON food_visit_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_reminder_events_due ON reminder_events(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_recommendation_sessions_created ON recommendation_sessions(domain, created_at);
 CREATE INDEX IF NOT EXISTS idx_recommendation_candidates_session ON recommendation_candidates(session_id, rank);

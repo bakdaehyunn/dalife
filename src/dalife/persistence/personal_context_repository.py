@@ -10,11 +10,14 @@ from dalife.models import (
     CoursePlanRecord,
     CoursePlanStopRecord,
     EvidenceItemRecord,
+    MobilityZoneRecord,
     PlaceEvidenceRecord,
     PlaceRecord,
     QueryLedgerRecord,
+    PreferenceSnapshotRecord,
     RecommendationCandidateRecord,
     RecommendationSessionRecord,
+    RecommendationEvaluationRecord,
     ReminderEventRecord,
     ReminderRecord,
     RoutineRecord,
@@ -122,6 +125,102 @@ class PersonalContextRepository(RepositoryBase):
                 AreaRecord,
             )
 
+    def upsert_mobility_zone(
+        self,
+        *,
+        name: str,
+        kind: str,
+        center_latitude: float,
+        center_longitude: float,
+        radius_meters: int,
+        walk_minutes: int | None = None,
+        transit_minutes: int | None = None,
+        taxi_minutes: int | None = None,
+        active_weekdays: list[str] | None = None,
+        active_time_windows: list[str] | None = None,
+        priority: int = 0,
+        enabled: bool = True,
+    ) -> MobilityZoneRecord:
+        self.init_db()
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mobility_zones(
+                  id, name, kind, center_latitude, center_longitude, radius_meters,
+                  walk_minutes, transit_minutes, taxi_minutes, active_weekdays_json,
+                  active_time_windows_json, priority, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                  kind=excluded.kind, center_latitude=excluded.center_latitude,
+                  center_longitude=excluded.center_longitude, radius_meters=excluded.radius_meters,
+                  walk_minutes=excluded.walk_minutes, transit_minutes=excluded.transit_minutes,
+                  taxi_minutes=excluded.taxi_minutes, active_weekdays_json=excluded.active_weekdays_json,
+                  active_time_windows_json=excluded.active_time_windows_json,
+                  priority=excluded.priority, enabled=excluded.enabled, updated_at=excluded.updated_at
+                """,
+                (
+                    str(uuid.uuid4()), name, kind, center_latitude, center_longitude,
+                    max(1, radius_meters), walk_minutes, transit_minutes, taxi_minutes,
+                    dumps(active_weekdays or []), dumps(active_time_windows or []),
+                    priority, int(enabled), now, now,
+                ),
+            )
+            return optional_record(
+                conn.execute("SELECT * FROM mobility_zones WHERE name = ?", (name,)).fetchone(),
+                MobilityZoneRecord,
+            )
+
+    def list_mobility_zones(self, *, enabled_only: bool = True) -> list[MobilityZoneRecord]:
+        self.init_db()
+        sql = "SELECT * FROM mobility_zones"
+        if enabled_only:
+            sql += " WHERE enabled = 1"
+        sql += " ORDER BY priority DESC, name"
+        with self.connect() as conn:
+            return records(conn.execute(sql), MobilityZoneRecord)
+
+    def get_mobility_zone(self, *, name: str) -> MobilityZoneRecord | None:
+        self.init_db()
+        with self.connect() as conn:
+            return optional_record(
+                conn.execute("SELECT * FROM mobility_zones WHERE name = ? AND enabled = 1", (name,)).fetchone(),
+                MobilityZoneRecord,
+            )
+
+    def set_mobility_zone_enabled(self, *, name: str, enabled: bool) -> bool:
+        self.init_db()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE mobility_zones SET enabled = ?, updated_at = ? WHERE name = ?",
+                (int(enabled), utc_now(), name),
+            )
+        return cursor.rowcount > 0
+
+    def link_mobility_zone_area(self, *, zone_id: str, area_id: str) -> None:
+        self.init_db()
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO mobility_zone_areas(zone_id, area_id, created_at) VALUES (?, ?, ?)",
+                (zone_id, area_id, utc_now()),
+            )
+
+    def list_zone_places(self, *, zone_id: str, limit: int = 1000) -> list[PlaceRecord]:
+        self.init_db()
+        with self.connect() as conn:
+            return records(
+                conn.execute(
+                    """
+                    SELECT DISTINCT p.* FROM places p
+                    JOIN mobility_zone_areas mza ON mza.area_id = p.area_id
+                    WHERE mza.zone_id = ?
+                    ORDER BY p.last_seen_at DESC, p.name LIMIT ?
+                    """,
+                    (zone_id, limit),
+                ),
+                PlaceRecord,
+            )
+
     def upsert_place(
         self,
         *,
@@ -202,6 +301,14 @@ class PersonalContextRepository(RepositoryBase):
         params.append(limit)
         with self.connect() as conn:
             return records(conn.execute(sql, params), PlaceRecord)
+
+    def get_place(self, *, place_id: str) -> PlaceRecord | None:
+        self.init_db()
+        with self.connect() as conn:
+            return optional_record(
+                conn.execute("SELECT * FROM places WHERE id = ?", (place_id,)).fetchone(),
+                PlaceRecord,
+            )
 
     def upsert_evidence_item(
         self,
@@ -476,6 +583,7 @@ class PersonalContextRepository(RepositoryBase):
         yielded_count: int,
         failure_reason: str = "",
         next_run_at: str = "",
+        metrics: dict[str, int] | None = None,
     ) -> QueryLedgerRecord | None:
         self.init_db()
         now = utc_now()
@@ -518,23 +626,51 @@ class PersonalContextRepository(RepositoryBase):
                 """,
                 (yielded_count, failure_reason, now, next_run_at, now, ledger_id),
             )
+            metric_values = metrics or {}
             conn.execute(
                 """
                 INSERT INTO query_ledger_runs(
                   id, ledger_id, provider, quota_cost, status,
-                  yielded_count, failure_reason, run_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  yielded_count, new_places_count, refreshed_places_count,
+                  new_evidence_count, duplicate_evidence_count, new_links_count,
+                  high_quality_links_count, unmatched_evidence_count,
+                  failure_reason, run_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(uuid.uuid4()), ledger_id, previous["provider"],
                     previous["quota_cost"], "failed" if failure_reason else "completed",
-                    yielded_count, failure_reason, now,
+                    yielded_count,
+                    int(metric_values.get("new_places_count", 0)),
+                    int(metric_values.get("refreshed_places_count", 0)),
+                    int(metric_values.get("new_evidence_count", 0)),
+                    int(metric_values.get("duplicate_evidence_count", 0)),
+                    int(metric_values.get("new_links_count", 0)),
+                    int(metric_values.get("high_quality_links_count", 0)),
+                    int(metric_values.get("unmatched_evidence_count", 0)),
+                    failure_reason, now,
                 ),
             )
             return optional_record(
                 conn.execute("SELECT * FROM query_ledger WHERE id = ?", (ledger_id,)).fetchone(),
                 QueryLedgerRecord,
             )
+
+    def list_query_ledger_run_metrics(self, *, since: str, limit: int = 10000) -> list[dict[str, Any]]:
+        self.init_db()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.*, q.facet, q.area_id, q.query_text, a.name AS area_name
+                FROM query_ledger_runs r
+                JOIN query_ledger q ON q.id = r.ledger_id
+                LEFT JOIN areas a ON a.id = q.area_id
+                WHERE r.run_at >= ?
+                ORDER BY r.run_at DESC LIMIT ?
+                """,
+                (since, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def upsert_routine(
         self,
@@ -1131,3 +1267,138 @@ class PersonalContextRepository(RepositoryBase):
                 ),
                 RecommendationCandidateRecord,
             )
+
+    def create_preference_snapshot(
+        self,
+        *,
+        domain: str,
+        model_version: str,
+        features: dict[str, Any],
+        evidence_count: int,
+    ) -> PreferenceSnapshotRecord:
+        self.init_db()
+        snapshot_id = str(uuid.uuid4())
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO preference_snapshots(
+                  id, domain, model_version, features_json, evidence_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (snapshot_id, domain, model_version, dumps(features), evidence_count, utc_now()),
+            )
+            return optional_record(
+                conn.execute("SELECT * FROM preference_snapshots WHERE id = ?", (snapshot_id,)).fetchone(),
+                PreferenceSnapshotRecord,
+            )
+
+    def latest_preference_snapshot(self, *, domain: str) -> PreferenceSnapshotRecord | None:
+        self.init_db()
+        with self.connect() as conn:
+            return optional_record(
+                conn.execute(
+                    "SELECT * FROM preference_snapshots WHERE domain = ? ORDER BY created_at DESC LIMIT 1",
+                    (domain,),
+                ).fetchone(),
+                PreferenceSnapshotRecord,
+            )
+
+    def create_recommendation_evaluation(
+        self,
+        *,
+        domain: str,
+        model_version: str,
+        metrics: dict[str, Any],
+        session_count: int,
+    ) -> RecommendationEvaluationRecord:
+        self.init_db()
+        evaluation_id = str(uuid.uuid4())
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO recommendation_evaluations(
+                  id, domain, model_version, metrics_json, session_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (evaluation_id, domain, model_version, dumps(metrics), session_count, utc_now()),
+            )
+            return optional_record(
+                conn.execute("SELECT * FROM recommendation_evaluations WHERE id = ?", (evaluation_id,)).fetchone(),
+                RecommendationEvaluationRecord,
+            )
+
+    def schedule_food_visit_followup(
+        self,
+        *,
+        followup_key: str,
+        recommendation_session_id: str,
+        place_id: str,
+        candidate_rank: int,
+        due_at: str,
+        chat_id: str = "",
+    ) -> dict[str, Any]:
+        self.init_db()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO food_visit_followups(
+                  id, followup_key, recommendation_session_id, place_id, candidate_rank,
+                  chat_id, due_at, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?, 'pending', ?)
+                ON CONFLICT(followup_key) DO NOTHING
+                """,
+                (
+                    str(uuid.uuid4()), followup_key, recommendation_session_id, place_id,
+                    candidate_rank, chat_id, due_at, utc_now(),
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM food_visit_followups WHERE followup_key = ?", (followup_key,)
+            ).fetchone()
+        return dict(row)
+
+    def list_due_food_visit_followups(self, *, due_at: str, limit: int = 20) -> list[dict[str, Any]]:
+        self.init_db()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT f.*, p.name AS place_name FROM food_visit_followups f
+                JOIN places p ON p.id = f.place_id
+                WHERE f.status = 'pending' AND f.due_at <= ?
+                ORDER BY f.due_at LIMIT ?
+                """,
+                (due_at, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_food_visit_followup(
+        self,
+        *,
+        followup_id: str = "",
+        recommendation_session_id: str = "",
+        place_id: str = "",
+        status: str,
+        telegram_message_id: str = "",
+    ) -> dict[str, Any] | None:
+        self.init_db()
+        now = utc_now()
+        where = "id = ?" if followup_id else "recommendation_session_id = ? AND place_id = ? AND status IN ('pending', 'sent')"
+        params: tuple[Any, ...] = (followup_id,) if followup_id else (recommendation_session_id, place_id)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM food_visit_followups WHERE {where} ORDER BY created_at DESC LIMIT 1", params
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                """
+                UPDATE food_visit_followups SET status = ?,
+                  telegram_message_id = COALESCE(NULLIF(?, ''), telegram_message_id),
+                  sent_at = CASE WHEN ? = 'sent' THEN COALESCE(sent_at, ?) ELSE sent_at END,
+                  responded_at = CASE WHEN ? IN ('confirmed', 'skipped') THEN ? ELSE responded_at END
+                WHERE id = ?
+                """,
+                (status, telegram_message_id, status, now, status, now, row["id"]),
+            )
+            updated = conn.execute("SELECT * FROM food_visit_followups WHERE id = ?", (row["id"],)).fetchone()
+        return dict(updated) if updated else None

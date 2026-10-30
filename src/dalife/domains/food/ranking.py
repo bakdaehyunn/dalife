@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 from dalife.domains.food.models import EvidenceTier, FoodPlace, FoodRecommendationContext
 
@@ -10,14 +11,15 @@ from dalife.domains.food.models import EvidenceTier, FoodPlace, FoodRecommendati
 class RankedFoodPlace:
     place: FoodPlace
     score: float
-    breakdown: dict[str, float]
+    breakdown: dict[str, Any]
 
 
 class PlaceRanker:
     def rank(self, places: list[FoodPlace], context: FoodRecommendationContext) -> list[RankedFoodPlace]:
         ranked = [self.score(place, context) for place in places]
         ranked.sort(key=lambda item: (-item.score, item.place.name))
-        return self._apply_category_diversity(ranked)[: context.count]
+        diversified = self._apply_category_diversity(ranked)
+        return self._select_exploit_explore(diversified, context)
 
     def score(self, place: FoodPlace, context: FoodRecommendationContext) -> RankedFoodPlace:
         breakdown = {
@@ -26,7 +28,11 @@ class PlaceRanker:
             "menu_fit": menu_fit_score(place, context),
             "distance": distance_score(place, context),
             "personal": personal_signal_score(place, context),
+            "category_preference": category_preference_score(place, context),
+            "repetition": repetition_penalty(place, context),
             "risk": risk_penalty(place, context),
+            "category": place.category,
+            "model_version": "food-ranker-v2",
         }
         score = (
             breakdown["evidence"] * 0.35
@@ -34,6 +40,8 @@ class PlaceRanker:
             + breakdown["menu_fit"] * 0.20
             + breakdown["distance"] * 0.10
             + breakdown["personal"] * 0.20
+            + breakdown["category_preference"] * 0.12
+            - breakdown["repetition"] * 0.18
             - breakdown["risk"] * 0.30
         )
         return RankedFoodPlace(place=place, score=round(score, 4), breakdown=breakdown)
@@ -56,6 +64,44 @@ class PlaceRanker:
             diversified.append(adjusted)
         diversified.sort(key=lambda item: (-item.score, item.place.name))
         return diversified
+
+    def _select_exploit_explore(
+        self,
+        ranked: list[RankedFoodPlace],
+        context: FoodRecommendationContext,
+    ) -> list[RankedFoodPlace]:
+        count = max(0, context.count)
+        if count == 0:
+            return []
+        explore_count = min(count, max(1, round(count * max(0.0, min(0.5, context.exploration_ratio))))) if count >= 5 else 0
+        exploit_count = count - explore_count
+        exploit = ranked[:exploit_count]
+        used_ids = {item.place.place_id for item in exploit}
+        used_categories = {normalize(item.place.category) for item in exploit if item.place.category}
+        exploration_pool = [
+            item for item in ranked[exploit_count:]
+            if item.place.place_id not in used_ids
+            and (
+                item.place.place_id not in context.recently_shown_place_ids
+                or normalize(item.place.category) not in used_categories
+            )
+        ]
+        explore = exploration_pool[:explore_count]
+        selected = [
+            RankedFoodPlace(item.place, item.score, {**item.breakdown, "selection_mode": "exploit"})
+            for item in exploit
+        ] + [
+            RankedFoodPlace(item.place, item.score, {**item.breakdown, "selection_mode": "explore"})
+            for item in explore
+        ]
+        if len(selected) < count:
+            selected_ids = {item.place.place_id for item in selected}
+            selected.extend(
+                RankedFoodPlace(item.place, item.score, {**item.breakdown, "selection_mode": "exploit"})
+                for item in ranked
+                if item.place.place_id not in selected_ids
+            )
+        return selected[:count]
 
 
 def evidence_score(place: FoodPlace) -> float:
@@ -108,6 +154,20 @@ def personal_signal_score(place: FoodPlace, context: FoodRecommendationContext) 
     if not scores:
         return 0.5
     return max(0.0, min(1.0, sum(scores) / len(scores)))
+
+
+def category_preference_score(place: FoodPlace, context: FoodRecommendationContext) -> float:
+    if not context.category_preferences:
+        return 0.5
+    category = normalize(place.category.split(">")[-1])
+    raw = context.category_preferences.get(category)
+    if raw is None:
+        return 0.5
+    return max(0.0, min(1.0, (float(raw) + 1.0) / 2.0))
+
+
+def repetition_penalty(place: FoodPlace, context: FoodRecommendationContext) -> float:
+    return 1.0 if place.place_id in context.recently_shown_place_ids else 0.0
 
 
 def risk_penalty(place: FoodPlace, context: FoodRecommendationContext) -> float:

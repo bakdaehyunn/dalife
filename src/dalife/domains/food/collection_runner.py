@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from dalife.domains.food.evidence_scoring import (
     blog_text_matches_name,
@@ -64,6 +65,12 @@ class FoodCollectionRunItem:
     places_stored: int = 0
     evidence_stored: int = 0
     evidence_links: int = 0
+    new_places_count: int = 0
+    refreshed_places_count: int = 0
+    new_evidence_count: int = 0
+    duplicate_evidence_count: int = 0
+    high_quality_links_count: int = 0
+    unmatched_evidence_count: int = 0
     failure_reason: str = ""
     quota_cost: int = 0
 
@@ -87,11 +94,13 @@ class FoodCollectionRunner:
         naver: NaverFoodCollectionPort,
         provider_daily_limits: dict[str, int],
         now: datetime | None = None,
+        operating_timezone: str = "Asia/Seoul",
     ) -> None:
         self.store = store
         self.providers = {"kakao_local": kakao, "naver_blog": naver}
         self.provider_daily_limits = provider_daily_limits
         self.now = now or datetime.now(timezone.utc)
+        self.operating_timezone = ZoneInfo(operating_timezone)
 
     def run_due(
         self,
@@ -105,13 +114,16 @@ class FoodCollectionRunner:
             due_at=self.now.isoformat(),
             limit=max(max_queries * 20, 200),
         )
+        local_now = self.now.astimezone(self.operating_timezone)
+        local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = local_midnight.astimezone(timezone.utc).isoformat()
         remaining_by_provider = {
             provider: max(
                 0,
                 limit
                 - self.store.query_ledger_cost_since(
                     provider=provider,
-                    since=self.now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+                    since=since,
                 ),
             )
             for provider, limit in self.provider_daily_limits.items()
@@ -155,7 +167,16 @@ class FoodCollectionRunner:
             self.store.record_query_ledger_result(
                 ledger_id=row["id"],
                 yielded_count=item.yielded_count,
-                next_run_at=(self.now + self._refresh_interval(row)).isoformat(),
+                next_run_at=(self.now + self._adaptive_refresh_interval(row, item)).isoformat(),
+                metrics={
+                    "new_places_count": item.new_places_count,
+                    "refreshed_places_count": item.refreshed_places_count,
+                    "new_evidence_count": item.new_evidence_count,
+                    "duplicate_evidence_count": item.duplicate_evidence_count,
+                    "new_links_count": item.evidence_links,
+                    "high_quality_links_count": item.high_quality_links_count,
+                    "unmatched_evidence_count": item.unmatched_evidence_count,
+                },
             )
             return item
         except Exception as exc:
@@ -176,6 +197,10 @@ class FoodCollectionRunner:
             )
 
     def _collect_kakao(self, row: QueryLedgerRecord) -> FoodCollectionRunItem:
+        existing_keys = {
+            (place["provider"], place["provider_place_id"])
+            for place in self.store.list_places(area_id=row["area_id"] or "", limit=5000)
+        }
         places = self.providers["kakao_local"].search_places(
             query=row["query_text"],
             page=int(row["page"]),
@@ -197,7 +222,8 @@ class FoodCollectionRunner:
                 longitude=place.longitude,
                 metadata={"query_text": row["query_text"], "raw": place.raw},
             )
-        links = self._reconcile_area_evidence(row["area_id"] or "")
+        new_places = sum(("kakao_local", place.provider_place_id) not in existing_keys for place in places)
+        links, high_quality_links = self._reconcile_area_evidence(row["area_id"] or "")
         return FoodCollectionRunItem(
             ledger_id=row["id"],
             provider=row["provider"],
@@ -206,10 +232,19 @@ class FoodCollectionRunner:
             yielded_count=len(places),
             places_stored=len(places),
             evidence_links=links,
+            new_places_count=new_places,
+            refreshed_places_count=len(places) - new_places,
+            high_quality_links_count=high_quality_links,
             quota_cost=int(row["quota_cost"]),
         )
 
     def _collect_naver(self, row: QueryLedgerRecord) -> FoodCollectionRunItem:
+        existing_urls = {
+            item["url"]
+            for item in self.store.list_evidence_items_for_area(
+                area_id=row["area_id"] or "", provider="naver_blog", limit=20000
+            )
+        }
         evidence_items = self.providers["naver_blog"].search_evidence(
             query=row["query_text"],
             page=int(row["page"]),
@@ -238,7 +273,8 @@ class FoodCollectionRunner:
                 raw={"provider": evidence.raw, "score": score, "signals": signals, "penalties": penalties},
                 area_id=row["area_id"] or "",
             )
-        links = self._reconcile_area_evidence(row["area_id"] or "")
+        new_evidence = sum(evidence.url not in existing_urls for evidence in evidence_items)
+        links, high_quality_links = self._reconcile_area_evidence(row["area_id"] or "")
         return FoodCollectionRunItem(
             ledger_id=row["id"],
             provider=row["provider"],
@@ -247,23 +283,28 @@ class FoodCollectionRunner:
             yielded_count=len(evidence_items),
             evidence_stored=len(evidence_items),
             evidence_links=links,
+            new_evidence_count=new_evidence,
+            duplicate_evidence_count=len(evidence_items) - new_evidence,
+            high_quality_links_count=high_quality_links,
+            unmatched_evidence_count=max(0, new_evidence - links),
             quota_cost=int(row["quota_cost"]),
         )
 
-    def _reconcile_area_evidence(self, area_id: str) -> int:
+    def _reconcile_area_evidence(self, area_id: str) -> tuple[int, int]:
         if not area_id:
-            return 0
+            return 0, 0
         places = self.store.list_places(area_id=area_id, limit=1000)
         evidence_items = self.store.list_evidence_items_for_area(
             area_id=area_id,
             provider="naver_blog",
-            limit=5000,
+            limit=20000,
         )
         existing_links = {
             (link["place_id"], link["evidence_item_id"])
             for link in self.store.list_place_evidence(place_ids=[place["id"] for place in places])
         }
         links = 0
+        high_quality_links = 0
         for evidence in evidence_items:
             evidence_text = f"{evidence['title']} {evidence['snippet']}"
             raw = loads_object(evidence["raw_json"] or "{}")
@@ -282,8 +323,10 @@ class FoodCollectionRunner:
                 key = (place["id"], evidence["id"])
                 if key not in existing_links:
                     links += 1
+                    if normalized_evidence_score(score) >= 0.7:
+                        high_quality_links += 1
                     existing_links.add(key)
-        return links
+        return links, high_quality_links
 
     @staticmethod
     def _refresh_interval(row: QueryLedgerRecord) -> timedelta:
@@ -292,6 +335,20 @@ class FoodCollectionRunner:
         if row["facet"] == "evidence_refresh":
             return timedelta(days=14)
         return timedelta(days=30)
+
+    @classmethod
+    def _adaptive_refresh_interval(
+        cls,
+        row: QueryLedgerRecord,
+        item: FoodCollectionRunItem,
+    ) -> timedelta:
+        if item.yielded_count == 0:
+            return timedelta(days=60 if row["facet"] == "evidence_refresh" else 30)
+        if item.new_places_count or item.high_quality_links_count:
+            return timedelta(days=7)
+        if item.new_evidence_count == 0 and item.duplicate_evidence_count:
+            return timedelta(days=30)
+        return cls._refresh_interval(row)
 
 
 def diversify_due_queries(rows: list[QueryLedgerRecord]) -> list[QueryLedgerRecord]:

@@ -3,9 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from dalife.readiness import ISSUE_NAMES
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dalife")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -52,64 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_telegram = sub.add_parser("telegram", help="Run Telegram polling capture bot")
     p_telegram.add_argument("--poll-interval-sec", type=float, default=1.0)
 
-    p_telegram_digest = sub.add_parser("telegram-digest", help="Send scheduled phone-first Telegram recommendation prompts")
-    p_telegram_digest.add_argument("--kind", choices=["revisit", "project-seed", "weekly"], default="revisit")
-    p_telegram_digest.add_argument("--limit", type=int, default=3)
-    p_telegram_digest.add_argument("--dry-run", action="store_true")
-    p_telegram_digest.add_argument("--json", action="store_true")
-
-    p_process = sub.add_parser("process", help="Process pending captures into archive metadata")
-    p_process.add_argument("--limit", type=int)
-    p_process.add_argument("--dry-run", action="store_true")
-    p_process.add_argument("--no-codex", action="store_true", help="Use the deterministic fallback processor")
-    p_process.add_argument(
-        "--export-graph",
-        action="store_true",
-        help="Refresh the semantic graph store and JSON-LD export after processing",
-    )
-    p_process.add_argument("--json", action="store_true")
-
-    p_pending = sub.add_parser("pending", help="Preview pending captures and processor inputs")
-    p_pending.add_argument("--limit", type=int)
-    p_pending.add_argument("--no-codex", action="store_true")
-    p_pending.add_argument("--json", action="store_true")
-
-    p_reprocess_plan = sub.add_parser("reprocess-plan", help="Plan safe archive-quality reprocessing candidates")
-    p_reprocess_plan.add_argument("--limit", type=int, default=20)
-    p_reprocess_plan.add_argument("--issue", choices=ISSUE_NAMES)
-    p_reprocess_plan.add_argument("--fallback-only", action="store_true")
-    p_reprocess_plan.add_argument("--needs-review-only", action="store_true")
-    p_reprocess_plan.add_argument("--capture-id")
-    p_reprocess_plan.add_argument("--json", action="store_true")
-
-    p_reprocess = sub.add_parser("reprocess", help="Reprocess one selected capture, or preview candidates with --dry-run")
-    p_reprocess.add_argument("--capture-id")
-    p_reprocess.add_argument("--limit", type=int, default=20)
-    p_reprocess.add_argument("--issue", choices=ISSUE_NAMES)
-    p_reprocess.add_argument("--fallback-only", action="store_true")
-    p_reprocess.add_argument("--needs-review-only", action="store_true")
-    p_reprocess.add_argument("--dry-run", action="store_true")
-    p_reprocess.add_argument("--no-codex", action="store_true", help="Use the deterministic fallback processor")
-    p_reprocess.add_argument("--no-export-graph", action="store_true", help="Do not refresh graph outputs after success")
-    p_reprocess.add_argument("--json", action="store_true")
-
-    p_list = sub.add_parser("list", help="List recent captures")
-    p_list.add_argument("--limit", type=int, default=20)
-    p_list.add_argument("--interest", help="Only show archived captures matching an interest")
-    p_list.add_argument("--json", action="store_true")
-
-    p_search = sub.add_parser("search", help="Search archived captures with the local SQLite FTS index")
-    p_search.add_argument("query")
-    p_search.add_argument("--limit", type=int, default=20)
-    p_search.add_argument("--rebuild", action="store_true", help="Rebuild the generated FTS index before searching")
-    p_search.add_argument("--json", action="store_true")
-
-    p_review = sub.add_parser("review", help="List local archive items that need review or revisit")
-    p_review.add_argument("--limit", type=int, default=20)
-    p_review.add_argument("--needs-review", action="store_true")
-    p_review.add_argument("--revisit", action="store_true")
-    p_review.add_argument("--json", action="store_true")
-
     p_archive = sub.add_parser("archive", help="Inspect and process local archive data")
     archive_sub = p_archive.add_subparsers(dest="archive_cmd", required=True)
     p_archive_pending = archive_sub.add_parser("pending", help="Preview pending captures and processor inputs")
@@ -120,11 +59,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_archive_process.add_argument("--limit", type=int)
     p_archive_process.add_argument("--dry-run", action="store_true")
     p_archive_process.add_argument("--no-codex", action="store_true", help="Use the deterministic fallback processor")
-    p_archive_process.add_argument(
-        "--export-graph",
-        action="store_true",
-        help="Refresh the semantic graph store and JSON-LD export after processing",
-    )
     p_archive_process.add_argument("--json", action="store_true")
     p_archive_list = archive_sub.add_parser("list", help="List recent captures")
     p_archive_list.add_argument("--limit", type=int, default=20)
@@ -143,34 +77,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_archive_show = archive_sub.add_parser("show", help="Show one capture")
     p_archive_show.add_argument("capture_id")
     p_archive_show.add_argument("--json", action="store_true")
-    p_archive_interests = archive_sub.add_parser("interests", help="Inspect archive interest distribution")
-    p_archive_interests.add_argument("--limit", type=int, default=20)
-    p_archive_interests.add_argument("--json", action="store_true")
-    p_archive_concepts = archive_sub.add_parser("concepts", help="Inspect archive concept/tag distribution")
-    p_archive_concepts.add_argument("--limit", type=int, default=20)
-    p_archive_concepts.add_argument("--json", action="store_true")
-    p_archive_related = archive_sub.add_parser("related", help="Inspect read-only related captures from local graph signals")
-    p_archive_related.add_argument("capture_id")
-    p_archive_related.add_argument("--limit", type=int, default=10)
-    p_archive_related.add_argument("--json", action="store_true")
-
-    p_web = sub.add_parser("web", help="Run the local-only archive retrieval web UI")
-    p_web.add_argument("--host", default="127.0.0.1")
-    p_web.add_argument("--port", type=int, default=8765)
-
-    p_interests = sub.add_parser("interests", help="Inspect archive interest distribution")
-    p_interests.add_argument("--limit", type=int, default=20)
-    p_interests.add_argument("--json", action="store_true")
-
-    p_concepts = sub.add_parser("concepts", help="Inspect archive concept/tag distribution")
-    p_concepts.add_argument("--limit", type=int, default=20)
-    p_concepts.add_argument("--json", action="store_true")
-
-    p_related = sub.add_parser("related", help="Inspect read-only related captures from local graph signals")
-    p_related.add_argument("capture_id")
-    p_related.add_argument("--limit", type=int, default=10)
-    p_related.add_argument("--json", action="store_true")
-
     p_food = sub.add_parser("food", help="Plan and inspect local food recommendation data")
     food_sub = p_food.add_subparsers(dest="food_cmd", required=True)
     p_food_parse = food_sub.add_parser("parse", help="Parse a food recommendation request without provider calls")
@@ -197,43 +103,54 @@ def build_parser() -> argparse.ArgumentParser:
     p_food_run.add_argument("--json", action="store_true")
     p_food_quota = food_sub.add_parser("quota", help="Show unified food provider quota usage")
     p_food_quota.add_argument("--json", action="store_true")
-    p_food_config = food_sub.add_parser(
-        "import-provider-config",
-        help="Import Kakao/Naver provider settings from a Momukbot env file",
+    p_food_report = food_sub.add_parser("collection-report", help="Report collection novelty and evidence utility")
+    p_food_report.add_argument("--days", type=int, default=30)
+    p_food_report.add_argument("--json", action="store_true")
+    p_food_zones = food_sub.add_parser("zones", help="Manage personal mobility zones")
+    zones_sub = p_food_zones.add_subparsers(dest="zone_cmd", required=True)
+    p_zone_list = zones_sub.add_parser("list")
+    p_zone_list.add_argument("--json", action="store_true")
+    p_zone_add = zones_sub.add_parser("add")
+    p_zone_add.add_argument("--name", required=True)
+    p_zone_add.add_argument("--kind", default="activity")
+    p_zone_add.add_argument("--latitude", type=float, required=True)
+    p_zone_add.add_argument("--longitude", type=float, required=True)
+    p_zone_add.add_argument("--radius-meters", type=int, required=True)
+    p_zone_add.add_argument("--area", action="append", default=[])
+    p_zone_add.add_argument("--walk-minutes", type=int)
+    p_zone_add.add_argument("--transit-minutes", type=int)
+    p_zone_add.add_argument("--taxi-minutes", type=int)
+    p_zone_add.add_argument("--priority", type=int, default=0)
+    p_zone_add.add_argument("--json", action="store_true")
+    p_zone_disable = zones_sub.add_parser("disable")
+    p_zone_disable.add_argument("--name", required=True)
+    p_zone_disable.add_argument("--json", action="store_true")
+    p_zone_coverage = zones_sub.add_parser("coverage")
+    p_zone_coverage.add_argument("--name")
+    p_zone_coverage.add_argument("--json", action="store_true")
+    p_food_profile = food_sub.add_parser("profile", help="Inspect or rebuild the explainable food profile")
+    profile_sub = p_food_profile.add_subparsers(dest="profile_cmd", required=True)
+    p_profile_show = profile_sub.add_parser("show")
+    p_profile_show.add_argument("--json", action="store_true")
+    p_profile_rebuild = profile_sub.add_parser("rebuild")
+    p_profile_rebuild.add_argument("--json", action="store_true")
+    p_food_feedback = food_sub.add_parser("feedback", help="Record an explicit food behavior event")
+    p_food_feedback.add_argument("--place-id", required=True)
+    p_food_feedback.add_argument(
+        "--action",
+        required=True,
+        choices=["map_requested", "evidence_requested", "saved", "liked", "disliked", "hide", "visit_planned", "visit_confirmed", "visit_skipped", "revisited"],
     )
-    p_food_config.add_argument(
-        "--source-env",
-        type=Path,
-        default=Path("/Users/hennei/workspace/momukbot/.env"),
-    )
-    p_food_config.add_argument("--overwrite", action="store_true")
-    p_food_config.add_argument("--dry-run", action="store_true")
-    p_food_config.add_argument("--json", action="store_true")
-    p_food_history = food_sub.add_parser(
-        "import-momuk-history",
-        help="Import legacy Momuk recommendation history into shared SQLite",
-    )
-    p_food_history.add_argument(
-        "--root",
-        type=Path,
-        default=Path("/Users/hennei/workspace/momukbot"),
-    )
-    p_food_history.add_argument("--dry-run", action="store_true")
-    p_food_history.add_argument("--json", action="store_true")
-    p_food_history_refresh = food_sub.add_parser(
-        "plan-history-refresh",
-        help="Plan exact-place refresh queries from selected legacy Momuk history",
-    )
-    p_food_history_refresh.add_argument("--area", required=True)
-    p_food_history_refresh.add_argument("--legacy-area", action="append", default=[])
-    p_food_history_refresh.add_argument("--place-limit", type=int, default=20)
-    p_food_history_refresh.add_argument("--persist", action="store_true")
-    p_food_history_refresh.add_argument("--json", action="store_true")
+    p_food_feedback.add_argument("--session-id", default="")
+    p_food_feedback.add_argument("--json", action="store_true")
+    p_food_evaluate = food_sub.add_parser("evaluate", help="Evaluate persisted food recommendation sessions")
+    p_food_evaluate.add_argument("--limit", type=int, default=1000)
+    p_food_evaluate.add_argument("--json", action="store_true")
     p_food_recommend = food_sub.add_parser(
         "recommend-local",
         help="Rank recommendations from validated local SQLite food data",
     )
-    p_food_recommend.add_argument("--area", required=True)
+    p_food_recommend.add_argument("--area", "--zone", dest="area", required=True)
     p_food_recommend.add_argument("--topic", default="")
     p_food_recommend.add_argument("--occasion", default="")
     p_food_recommend.add_argument("--count", type=int, default=10)
@@ -310,18 +227,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_life_run.add_argument("--time", default="")
     p_life_run.add_argument("--dry-run", action="store_true")
     p_life_run.add_argument("--json", action="store_true")
-    p_life_import = life_sub.add_parser(
-        "import-honsanam",
-        help="Import Honsanam reminder config and state into local SQLite",
-    )
-    p_life_import.add_argument(
-        "--root",
-        type=Path,
-        default=Path("/Users/hennei/workspace/honsanam-reminder-bot"),
-    )
-    p_life_import.add_argument("--dry-run", action="store_true")
-    p_life_import.add_argument("--json", action="store_true")
-
     p_course = sub.add_parser("course", help="Plan personal courses from local context")
     course_sub = p_course.add_subparsers(dest="course_cmd", required=True)
     p_course_plan = course_sub.add_parser("plan", help="Create a local course plan draft")
@@ -337,53 +242,4 @@ def build_parser() -> argparse.ArgumentParser:
     p_schedule_plan = schedule_sub.add_parser("plan", help="Show planned unified scheduled jobs")
     p_schedule_plan.add_argument("--include-disabled", action="store_true")
     p_schedule_plan.add_argument("--json", action="store_true")
-    p_schedule_cutover = schedule_sub.add_parser(
-        "cutover-check",
-        help="Read-only audit for migrating legacy life reminder agents",
-    )
-    p_schedule_cutover.add_argument("--json", action="store_true")
-
-    p_insights = sub.add_parser("insights", help="List or generate local draft insight notes")
-    p_insights.add_argument("--limit", type=int, default=20)
-    p_insights.add_argument("--json", action="store_true")
-    insights_sub = p_insights.add_subparsers(dest="insights_cmd")
-    p_insights_generate = insights_sub.add_parser("generate", help="Generate a local draft insight note")
-    p_insights_generate.add_argument("--period", choices=["weekly"], default="weekly")
-    p_insights_generate.add_argument("--dry-run", action="store_true")
-    p_insights_generate.add_argument("--include-needs-review", action="store_true")
-    p_insights_generate.add_argument("--limit", type=int, default=20)
-    p_insights_generate.add_argument("--json", action="store_true")
-    p_insights_show = insights_sub.add_parser("show", help="Show one local draft insight note")
-    p_insights_show.add_argument("insight_id")
-    p_insights_show.add_argument("--json", action="store_true")
-
-    p_show = sub.add_parser("show", help="Show one capture")
-    p_show.add_argument("capture_id")
-    p_show.add_argument("--json", action="store_true")
-
-    p_graph = sub.add_parser("graph", help="Export ontology-oriented local graph data")
-    graph_sub = p_graph.add_subparsers(dest="graph_cmd", required=True)
-    p_graph_init = graph_sub.add_parser("init", help="Initialize the local semantic graph store")
-    p_graph_init.add_argument("--path", type=Path)
-    p_graph_init.add_argument("--json", action="store_true")
-    p_graph_sync = graph_sub.add_parser("sync", help="Rebuild the semantic graph store from SQLite archive rows")
-    p_graph_sync.add_argument("--path", type=Path)
-    p_graph_sync.add_argument("--limit", type=int)
-    p_graph_sync.add_argument("--include-raw-text", action="store_true")
-    p_graph_sync.add_argument("--json", action="store_true")
-    p_graph_store_export = graph_sub.add_parser("store-export", help="Dump the semantic graph store as N-Quads")
-    p_graph_store_export.add_argument("--path", type=Path)
-    p_graph_store_export.add_argument("--output", type=Path)
-    p_graph_store_export.add_argument("--json", action="store_true")
-    p_graph_export = graph_sub.add_parser("export", help="Export archive items as JSON-LD")
-    p_graph_export.add_argument("--output", type=Path)
-    p_graph_export.add_argument("--limit", type=int)
-    p_graph_export.add_argument("--include-raw-text", action="store_true")
-    p_graph_export.add_argument("--json", action="store_true")
-    p_graph_stats = graph_sub.add_parser("stats", help="Show local semantic graph store stats")
-    p_graph_stats.add_argument("--path", type=Path)
-    p_graph_stats.add_argument("--json", action="store_true")
-    p_graph_quality = graph_sub.add_parser("quality", help="Inspect archive readiness for graph and viewpoint work")
-    p_graph_quality.add_argument("--limit", type=int, default=20)
-    p_graph_quality.add_argument("--json", action="store_true")
     return parser

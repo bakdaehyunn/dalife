@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from dalife.archive_values import json_array
-from dalife.insights import generate_insight_note
 from dalife.models import ArchiveItemRecord, BotPromptRecord
 from dalife.ports import PromptStore
 
@@ -14,17 +12,6 @@ POST_PROCESS_CHOICES = [
     {"choice": "revisit", "label": "Revisit"},
     {"choice": "keep", "label": "Keep"},
     {"choice": "needs_review", "label": "Needs review"},
-    {"choice": "ignore", "label": "Ignore"},
-]
-DIGEST_CHOICES = [
-    {"choice": "open_project_seed", "label": "Project seed"},
-    {"choice": "revisit", "label": "Revisit"},
-    {"choice": "keep", "label": "Keep"},
-    {"choice": "ignore", "label": "Ignore"},
-]
-WEEKLY_CHOICES = [
-    {"choice": "create_weekly_insight", "label": "Create insight"},
-    {"choice": "later", "label": "Later"},
     {"choice": "ignore", "label": "Ignore"},
 ]
 
@@ -52,65 +39,6 @@ def create_post_process_prompt(store: PromptStore, capture_id: str) -> dict[str,
         choices=POST_PROCESS_CHOICES,
     )
     return prompt_to_dict(prompt)
-
-
-def create_revisit_digest_prompt(store: PromptStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
-    rows = store.review_archive_items(limit=limit, revisit_only=True)
-    if not rows:
-        return None
-    today = datetime.now(timezone.utc).date().isoformat()
-    body = "\n\n".join(digest_item_line(index, row) for index, row in enumerate(rows, start=1))
-    prompt = store.create_bot_prompt(
-        prompt_key=f"digest:revisit:{chat_id}:{today}:v1",
-        chat_id=chat_id,
-        prompt_type="digest_revisit",
-        title="Today's archive revisit candidates",
-        body=body,
-        recommended_action="Pick anything worth turning into a project seed or revisit item.",
-        choices=DIGEST_CHOICES,
-    )
-    return prompt_to_dict(prompt)
-
-
-def create_project_seed_digest_prompt(store: PromptStore, chat_id: str, *, limit: int = 3) -> dict[str, Any] | None:
-    rows = [
-        row
-        for row in store.review_archive_items(limit=20, revisit_only=True)
-        if str(row["insight_seed"] or "").strip()
-    ][:limit]
-    if not rows:
-        return None
-    today = datetime.now(timezone.utc).date().isoformat()
-    body = "\n\n".join(project_seed_digest_item_line(index, row) for index, row in enumerate(rows, start=1))
-    prompt = store.create_bot_prompt(
-        prompt_key=f"digest:project-seed:{chat_id}:{today}:v1",
-        chat_id=chat_id,
-        prompt_type="digest_project_seed",
-        title="Project seed candidates from your archive",
-        body=body,
-        recommended_action="Choose whether any of these should become a project seed.",
-        choices=DIGEST_CHOICES,
-    )
-    return prompt_to_dict(prompt)
-
-
-def create_weekly_insight_prompt(store: PromptStore, chat_id: str) -> dict[str, Any] | None:
-    result = generate_insight_note(store, period="weekly", dry_run=True, include_needs_review=False)
-    if result.get("status") != "dry-run":
-        return None
-    note = result["would_create"]
-    week = str(note.get("period_start") or "")[:10]
-    prompt = store.create_bot_prompt(
-        prompt_key=f"digest:weekly:{chat_id}:{week}:v1",
-        chat_id=chat_id,
-        prompt_type="digest_weekly_insight",
-        title=str(note.get("title") or "Weekly insight draft"),
-        body=str(note.get("summary") or "")[:700],
-        recommended_action="Create a local weekly insight draft from this pattern?",
-        choices=WEEKLY_CHOICES,
-    )
-    return prompt_to_dict(prompt)
-
 
 def prompt_classification(row: ArchiveItemRecord) -> str:
     if bool(row["needs_review"]) or float(row["confidence"] or 0.0) < 0.5:
@@ -148,31 +76,6 @@ def post_process_body(row: ArchiveItemRecord, classification: str) -> str:
         lines.append(f"Seed: {truncate(row['insight_seed'], 180)}")
     lines.append(recommended_action_for_classification(classification))
     return "\n".join(lines)
-
-
-def digest_item_line(index: int, row: ArchiveItemRecord) -> str:
-    parts = [
-        f"{index}. {safe_title(row)}",
-        truncate(row["core_summary"] or row["summary"], 160),
-    ]
-    reason = str(row["revisit_reason"] or row["insight_seed"] or "").strip()
-    if reason:
-        parts.append(f"Reason: {truncate(reason, 140)}")
-    return "\n".join(part for part in parts if part)
-
-
-def project_seed_digest_item_line(index: int, row: ArchiveItemRecord) -> str:
-    parts = [
-        f"{index}. {safe_title(row)}",
-        truncate(row["core_summary"] or row["summary"], 160),
-    ]
-    seed = str(row["insight_seed"] or "").strip()
-    if seed:
-        parts.append(f"Seed: {truncate(seed, 160)}")
-    reason = str(row["revisit_reason"] or "").strip()
-    if reason:
-        parts.append(f"Why revisit: {truncate(reason, 120)}")
-    return "\n".join(part for part in parts if part)
 
 
 def prompt_to_dict(row: BotPromptRecord) -> dict[str, Any]:

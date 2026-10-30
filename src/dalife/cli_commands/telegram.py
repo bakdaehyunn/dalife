@@ -5,9 +5,6 @@ from typing import Any
 
 from dalife.bot_prompts import (
     create_post_process_prompt,
-    create_project_seed_digest_prompt,
-    create_revisit_digest_prompt,
-    create_weekly_insight_prompt,
 )
 from dalife.cli_formatting import mask_identifier, only_allowed_chat_id
 from dalife.config import Settings
@@ -105,55 +102,6 @@ def send_test_cmd(
     print(f"sent test message to {mask_identifier(target)}")
     return 0
 
-def telegram_digest_cmd_impl(
-    settings: Settings,
-    store: ArchiveStore,
-    *,
-    kind: str,
-    limit: int,
-    dry_run: bool,
-    json_output: bool,
-    api_factory: Any,
-) -> int:
-    chat_id = target_prompt_chat_id(settings)
-    if not chat_id:
-        message = "No Telegram chat is configured for proactive DaLife prompts."
-        if json_output:
-            print(json.dumps({"status": "skipped", "reason": message}, ensure_ascii=False, indent=2))
-        else:
-            print(f"[SKIP] {message}")
-        return 0
-    prompt = create_digest_prompt(store, chat_id=chat_id, kind=kind, limit=limit)
-    if prompt is None:
-        payload = {"status": "skipped", "kind": kind, "reason": "no useful prompt candidates"}
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[SKIP] {payload['reason']}")
-        return 0
-    if dry_run:
-        payload = {"status": "dry-run", "kind": kind, "prompt": prompt}
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[dry-run] would send {prompt['title']}")
-        return 0
-    if not settings.telegram_bot_token:
-        payload = {"status": "skipped", "kind": kind, "reason": "TELEGRAM_BOT_TOKEN is not configured", "prompt": prompt}
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"[SKIP] {payload['reason']}")
-        return 0
-    result = send_bot_prompt(api_factory(settings.telegram_bot_token), store, prompt)
-    payload = {"kind": kind, **result}
-    if json_output:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-    elif payload.get("status") == "sent":
-        print(f"sent {kind} prompt to {mask_identifier(chat_id)}")
-    else:
-        print(f"[SKIP] {payload.get('reason') or 'prompt was not sent'}")
-    return 0
-
-def create_digest_prompt(store: ArchiveStore, *, chat_id: str, kind: str, limit: int) -> dict[str, Any] | None:
-    if kind == "revisit":
-        return create_revisit_digest_prompt(store, chat_id, limit=limit)
-    if kind == "project-seed":
-        return create_project_seed_digest_prompt(store, chat_id, limit=limit)
-    if kind == "weekly":
-        return create_weekly_insight_prompt(store, chat_id)
-    return None
 
 def send_processed_capture_prompts_impl(
     settings: Settings,
@@ -178,11 +126,3 @@ def send_processed_capture_prompts_impl(
             # Scheduled processing should not fail only because Telegram delivery failed.
             continue
     return sent
-
-def target_prompt_chat_id(settings: Settings) -> str:
-    state = read_room_state(settings)
-    if state.dalife_chat_id:
-        return state.dalife_chat_id
-    if len(settings.telegram_allowed_chat_ids) == 1:
-        return settings.telegram_allowed_chat_ids[0]
-    return ""

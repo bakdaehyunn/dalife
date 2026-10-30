@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dalife.bot_prompts import (
     create_post_process_prompt,
-    create_project_seed_digest_prompt,
-    create_revisit_digest_prompt,
 )
 from dalife.storage import ArchiveStore
 
@@ -47,29 +45,6 @@ def test_post_process_prompt_created_for_project_seed(tmp_path):
     assert "phone-first product flow" in prompt["body"]
 
 
-def test_digest_prompts_use_revisit_and_project_seed_candidates(tmp_path):
-    store = ArchiveStore(tmp_path / "state")
-    add_prompt_archive_item(
-        store,
-        message_id=3,
-        confidence=0.9,
-        needs_review=False,
-        primary_interest="product",
-        topic="archive",
-        revisit_priority="high",
-        revisit_reason="good candidate for next build",
-        insight_seed="phone-first prompt flow",
-    )
-
-    revisit = create_revisit_digest_prompt(store, "chat")
-    project_seed = create_project_seed_digest_prompt(store, "chat")
-
-    assert revisit is not None
-    assert revisit["prompt_type"] == "digest_revisit"
-    assert "good candidate" in revisit["body"]
-    assert project_seed is not None
-    assert project_seed["prompt_type"] == "digest_project_seed"
-    assert "phone-first prompt flow" in project_seed["body"]
 
 
 def test_bot_prompt_choice_is_idempotent_and_audited(tmp_path):

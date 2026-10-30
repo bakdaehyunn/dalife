@@ -240,9 +240,20 @@ class TelegramCaptureBot:
             self.store,
             data,
             callback_query_id=callback_id,
+            chat_id=chat_id,
         )
         if answer is None:
             self.answer_callback(callback_id, "Recommendation not found")
+            return
+        if answer.startswith("MAP:"):
+            self.answer_callback(callback_id, "지도 링크를 보냈어요")
+            self.api.send_message(chat_id, answer.removeprefix("MAP:"))
+            self.logger.info("food map callback=%s user_id=%s", data, user_id)
+            return
+        if answer.startswith("EVIDENCE:"):
+            self.answer_callback(callback_id, "근거를 보냈어요")
+            self.api.send_message(chat_id, answer.removeprefix("EVIDENCE:"))
+            self.logger.info("food evidence callback=%s user_id=%s", data, user_id)
             return
         self.answer_callback(callback_id, answer)
         self.logger.info("food feedback callback=%s user_id=%s", data, user_id)

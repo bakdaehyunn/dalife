@@ -59,3 +59,6 @@ class FoodRecommendationContext:
     avoid_terms: tuple[str, ...] = ()
     required_terms: tuple[str, ...] = ()
     personal_signals: dict[str, float] = field(default_factory=dict)
+    category_preferences: dict[str, float] = field(default_factory=dict)
+    recently_shown_place_ids: tuple[str, ...] = ()
+    exploration_ratio: float = 0.2

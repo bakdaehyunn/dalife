@@ -118,3 +118,45 @@ def test_recommend_local_food_does_not_create_area_or_session_when_area_is_unkno
     assert result.ranked_places == ()
     assert result.session_id == ""
     assert store.get_area_by_normalized_name(normalized_name="없는동네") is None
+
+
+def test_recommend_local_food_hard_excludes_hidden_place_and_records_impressions(tmp_path):
+    store = ArchiveStore(tmp_path / "state")
+    area = store.upsert_area(name="신정동", normalized_name="신정동")
+    hidden = _seed_place(store, area["id"], place_id="hidden", name="숨긴 식당", category="한식")
+    visible = _seed_place(store, area["id"], place_id="visible", name="보이는 식당", category="일식")
+    store.record_user_feedback(
+        feedback_key="hide", domain="food", action="hide", place_id=hidden["id"]
+    )
+
+    result = recommend_local_food(
+        store,
+        request_text="신정동 추천",
+        context=FoodRecommendationContext(area="신정동", topic="", count=5),
+    )
+
+    assert [item.place.place_id for item in result.ranked_places] == [visible["id"]]
+    feedback = store.list_user_feedback(domain="food", limit=20)
+    shown = [row for row in feedback if row["action"] == "recommendation_shown"]
+    assert len(shown) == 1
+    assert shown[0]["place_id"] == visible["id"]
+
+
+def test_recommend_local_food_accepts_mobility_zone_name(tmp_path):
+    store = ArchiveStore(tmp_path / "state")
+    area = store.upsert_area(name="신정동", normalized_name="신정동")
+    place = _seed_place(store, area["id"], place_id="zone-place", name="생활권 식당", category="한식")
+    zone = store.upsert_mobility_zone(
+        name="집 도보권", kind="home", center_latitude=37.52,
+        center_longitude=126.86, radius_meters=1500,
+    )
+    store.link_mobility_zone_area(zone_id=zone["id"], area_id=area["id"])
+
+    result = recommend_local_food(
+        store,
+        request_text="집 도보권 추천",
+        context=FoodRecommendationContext(area="집 도보권", topic="한식", count=1),
+    )
+
+    assert result.area["name"] == "집 도보권"
+    assert result.ranked_places[0].place.place_id == place["id"]

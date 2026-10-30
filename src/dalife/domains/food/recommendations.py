@@ -30,7 +30,7 @@ def persist_food_recommendation_session(
         },
     )
     for index, ranked in enumerate(ranked_places, start=1):
-        store.add_recommendation_candidate(
+        candidate = store.add_recommendation_candidate(
             session_id=session["id"],
             place_id=ranked.place.place_id,
             rank=index,
@@ -38,5 +38,19 @@ def persist_food_recommendation_session(
             score_breakdown=ranked.breakdown,
             evidence_tier=ranked.place.evidence_tier.value,
             explanation=f"{ranked.place.name} matched {context.topic}".strip(),
+        )
+        store.record_user_feedback(
+            feedback_key=f"shown:{session['id']}:{candidate['id']}",
+            domain="food",
+            action="recommendation_shown",
+            place_id=ranked.place.place_id,
+            recommendation_session_id=session["id"],
+            payload={
+                "candidate_id": candidate["id"],
+                "rank": index,
+                "score": ranked.score,
+                "score_breakdown": ranked.breakdown,
+                "evidence_tier": ranked.place.evidence_tier.value,
+            },
         )
     return session

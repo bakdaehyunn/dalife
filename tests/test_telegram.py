@@ -135,7 +135,12 @@ def test_enabled_native_food_intent_sends_local_recommendation_and_feedback_pers
     assert capture_id is None
     assert store.list_captures(10) == []
     assert "동네 식당" in api.messages[0]["text"]
-    callback_data = api.messages[0]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+    callback_data = next(
+        button["callback_data"]
+        for row in api.messages[0]["reply_markup"]["inline_keyboard"]
+        for button in row
+        if button["callback_data"].endswith(":liked")
+    )
     bot.handle_update(
         {
             "update_id": 2,

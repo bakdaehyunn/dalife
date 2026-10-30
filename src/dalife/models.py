@@ -101,6 +101,21 @@ class QueryLedgerRecord(Record):
 
 
 @dataclass(frozen=True)
+class MobilityZoneRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class PreferenceSnapshotRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
+class RecommendationEvaluationRecord(Record):
+    pass
+
+
+@dataclass(frozen=True)
 class RoutineRecord(Record):
     pass
 

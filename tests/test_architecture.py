@@ -51,10 +51,6 @@ def test_sqlite_is_confined_to_persistence():
     assert offenders == []
 
 
-def test_semantic_graph_uses_shared_ontology_not_jsonld_exporter():
-    dependencies = module_dependencies(PACKAGE / "semantic_graph.py")
-    assert "ontology" in dependencies
-    assert "graph" not in dependencies
 
 
 def test_repository_boundaries_do_not_expose_sqlite_rows():

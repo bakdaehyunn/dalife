@@ -22,9 +22,9 @@ UNIFIED_SCHEDULE: tuple[ScheduledJob, ...] = (
     ),
     ScheduledJob(
         name="archive-process",
-        command=("dalife", "process", "--export-graph"),
-        cadence="every_5_minutes",
-        purpose="process pending captures and refresh derived graph outputs after successful work",
+        command=("dalife", "archive", "process"),
+        cadence="every_15_minutes",
+        purpose="process pending captures into searchable SQLite archive data",
     ),
     ScheduledJob(
         name="food-collect",
@@ -35,34 +35,8 @@ UNIFIED_SCHEDULE: tuple[ScheduledJob, ...] = (
     ScheduledJob(
         name="life-send",
         command=("dalife", "life", "run-once"),
-        cadence="every_5_minutes",
-        purpose="send due SQLite-backed life reminders through Telegram",
-        launchd_managed=False,
-    ),
-    ScheduledJob(
-        name="feedback-replies",
-        command=("dalife", "telegram"),
-        cadence="keep_alive",
-        purpose="handle Telegram callback feedback through the unified polling process",
-        launchd_managed=False,
-    ),
-    ScheduledJob(
-        name="revisit-digest",
-        command=("dalife", "telegram-digest", "--kind", "revisit"),
-        cadence="daily_09_00",
-        purpose="suggest archive revisit candidates",
-    ),
-    ScheduledJob(
-        name="project-seed-digest",
-        command=("dalife", "telegram-digest", "--kind", "project-seed"),
-        cadence="daily_18_00",
-        purpose="suggest project seed candidates",
-    ),
-    ScheduledJob(
-        name="weekly-insight",
-        command=("dalife", "telegram-digest", "--kind", "weekly"),
-        cadence="daily_09_30",
-        purpose="prompt for weekly insight draft generation",
+        cadence="every_15_minutes",
+        purpose="send due life reminders and restaurant visit confirmations through Telegram",
     ),
     ScheduledJob(
         name="course-suggestions",
@@ -94,9 +68,5 @@ def schedule_summary(*, include_disabled: bool = False) -> list[dict[str, object
     ]
 
 
-def launchd_schedule(*, include_life_sender: bool = False) -> tuple[ScheduledJob, ...]:
-    return tuple(
-        job
-        for job in UNIFIED_SCHEDULE
-        if job.enabled and (job.launchd_managed or (include_life_sender and job.name == "life-send"))
-    )
+def launchd_schedule() -> tuple[ScheduledJob, ...]:
+    return tuple(job for job in UNIFIED_SCHEDULE if job.enabled and job.launchd_managed)

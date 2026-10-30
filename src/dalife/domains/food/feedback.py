@@ -8,11 +8,19 @@ from dalife.ports import PersonalContextRepositoryPort
 
 
 class FoodFeedbackAction(StrEnum):
+    RECOMMENDATION_SHOWN = "recommendation_shown"
+    MAP_REQUESTED = "map_requested"
+    EVIDENCE_REQUESTED = "evidence_requested"
+    SAVED = "saved"
     LIKED = "liked"
     DISLIKED = "disliked"
     VISITED = "visited"
     HIDE = "hide"
     MORE_LIKE_THIS = "more_like_this"
+    VISIT_PLANNED = "visit_planned"
+    VISIT_CONFIRMED = "visit_confirmed"
+    VISIT_SKIPPED = "visit_skipped"
+    REVISITED = "revisited"
 
 
 FOOD_FEEDBACK_CHOICES = (
@@ -21,6 +29,10 @@ FOOD_FEEDBACK_CHOICES = (
     {"choice": FoodFeedbackAction.VISITED.value, "label": "Visited"},
     {"choice": FoodFeedbackAction.HIDE.value, "label": "Hide"},
     {"choice": FoodFeedbackAction.MORE_LIKE_THIS.value, "label": "More like this"},
+    {"choice": FoodFeedbackAction.MAP_REQUESTED.value, "label": "Map"},
+    {"choice": FoodFeedbackAction.EVIDENCE_REQUESTED.value, "label": "Evidence"},
+    {"choice": FoodFeedbackAction.SAVED.value, "label": "Save"},
+    {"choice": FoodFeedbackAction.VISIT_PLANNED.value, "label": "Plan visit"},
 )
 
 

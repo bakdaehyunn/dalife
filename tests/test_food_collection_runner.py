@@ -106,7 +106,9 @@ def test_collection_runner_stores_places_all_evidence_and_matching_links(tmp_pat
 
     assert [item.status for item in run.items] == ["completed", "completed"]
     assert run.items[0].places_stored == 1
+    assert run.items[0].new_places_count == 1
     assert run.items[1].evidence_stored == 2
+    assert run.items[1].new_evidence_count == 2
     assert run.items[1].evidence_links == 1
     places = store.list_places(area_id=area["id"])
     evidence = store.list_evidence_items(
@@ -117,6 +119,33 @@ def test_collection_runner_stores_places_all_evidence_and_matching_links(tmp_pat
     assert len(evidence) == 2
     assert len(links) == 1
     assert links[0]["score"] > 0.7
+
+    with store.connect() as conn:
+        metrics = conn.execute(
+            "SELECT * FROM query_ledger_runs ORDER BY run_at DESC LIMIT 2"
+        ).fetchall()
+    assert sum(row["new_places_count"] for row in metrics) == 1
+    assert sum(row["new_evidence_count"] for row in metrics) == 2
+
+
+def test_collection_runner_counts_duplicate_refresh_and_slows_it_down(tmp_path):
+    store = ArchiveStore(tmp_path / "state")
+    _, _, naver = _seed_ledger(store)
+    runner = _runner(store)
+    runner.run_due(max_queries=2, max_quota_cost=2)
+    store.upsert_query_ledger_entry(
+        domain="food", provider="naver_blog", query_text="신정동 고기 후기",
+        area_id=naver["area_id"], facet="evidence_refresh", sort_mode="date",
+        next_run_at="2026-08-29T00:00:00+00:00", metadata={"area": "신정동"},
+    )
+
+    rerun = runner.run_due(max_queries=1, max_quota_cost=1)
+
+    assert rerun.items[0].new_evidence_count == 0
+    assert rerun.items[0].duplicate_evidence_count == 2
+    with store.connect() as conn:
+        next_run = conn.execute("SELECT next_run_at FROM query_ledger WHERE id = ?", (naver["id"],)).fetchone()[0]
+    assert next_run == "2026-09-28T01:00:00+00:00"
 
 
 def test_collection_runner_isolates_failure_and_records_backoff(tmp_path):

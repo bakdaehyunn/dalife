@@ -11,6 +11,10 @@ def test_food_feedback_actions_match_target_telegram_actions():
         "visited",
         "hide",
         "more_like_this",
+        "map_requested",
+        "evidence_requested",
+        "saved",
+        "visit_planned",
     )
 
 

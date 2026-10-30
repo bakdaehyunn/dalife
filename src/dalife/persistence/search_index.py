@@ -184,6 +184,19 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             )
             """
         )
+    run_columns = {row["name"] for row in conn.execute("PRAGMA table_info(query_ledger_runs)")}
+    run_additions = {
+        "new_places_count": "INTEGER NOT NULL DEFAULT 0",
+        "refreshed_places_count": "INTEGER NOT NULL DEFAULT 0",
+        "new_evidence_count": "INTEGER NOT NULL DEFAULT 0",
+        "duplicate_evidence_count": "INTEGER NOT NULL DEFAULT 0",
+        "new_links_count": "INTEGER NOT NULL DEFAULT 0",
+        "high_quality_links_count": "INTEGER NOT NULL DEFAULT 0",
+        "unmatched_evidence_count": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for column, column_type in run_additions.items():
+        if run_columns and column not in run_columns:
+            conn.execute(f"ALTER TABLE query_ledger_runs ADD COLUMN {column} {column_type}")
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS uq_query_ledger_identity

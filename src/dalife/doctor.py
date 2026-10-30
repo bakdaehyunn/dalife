@@ -84,10 +84,9 @@ def run_doctor(
 
     lines.append(f"[OK] Codex processor enabled: {str(settings.codex_enabled).lower()}")
     lines.append(f"[OK] Codex sandbox: {settings.codex_sandbox}")
-    lines.append("[INFO] Normal operation: launchd/cron keeps capture running and runs `dalife process --export-graph` every 5 minutes")
-    lines.append("[INFO] `--export-graph` refreshes the local semantic graph store and JSON-LD export after successful processing")
+    lines.append("[INFO] Normal operation: launchd keeps Telegram capture running, processes the archive every 15 minutes, and sends due notifications every 15 minutes")
     lines.append("[INFO] Processor checks SQLite for pending captures first; when none exist, it exits without Codex work")
-    lines.append("[INFO] Test/debug commands: run `dalife telegram`, `dalife pending`, or `dalife process` directly")
+    lines.append("[INFO] Test/debug commands: run `dalife telegram`, `dalife archive pending`, or `dalife archive process` directly")
 
     conflict_lines = describe_recent_polling_conflicts(settings)
     lines.extend(conflict_lines)

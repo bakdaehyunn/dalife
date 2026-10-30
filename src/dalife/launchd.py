@@ -16,9 +16,6 @@ LABELS = {
     "archive-process": "com.hennei.dalife.processor",
     "food-collect": "com.hennei.dalife.food-collect",
     "life-send": "com.hennei.dalife.life-send",
-    "revisit-digest": "com.hennei.dalife.digest",
-    "project-seed-digest": "com.hennei.dalife.digest.project-seed",
-    "weekly-insight": "com.hennei.dalife.digest.weekly",
 }
 
 LOG_NAMES = {
@@ -26,9 +23,6 @@ LOG_NAMES = {
     "archive-process": "processor",
     "food-collect": "food-collect",
     "life-send": "life-send",
-    "revisit-digest": "digest",
-    "project-seed-digest": "digest-project-seed",
-    "weekly-insight": "digest-weekly",
 }
 
 
@@ -45,6 +39,8 @@ def _cadence_payload(job: ScheduledJob) -> dict[str, Any]:
         return {"KeepAlive": True}
     if job.cadence == "every_5_minutes":
         return {"StartInterval": 300}
+    if job.cadence == "every_15_minutes":
+        return {"StartInterval": 900}
     if job.cadence == "daily_09_00":
         return {"StartCalendarInterval": {"Hour": 9, "Minute": 0}}
     if job.cadence == "daily_03_00":
@@ -70,19 +66,19 @@ def launchd_plist(root: Path, job: ScheduledJob) -> dict[str, Any]:
     }
 
 
-def write_launchd_plists(root: Path, launch_dir: Path, *, include_life_sender: bool = False) -> list[Path]:
+def write_launchd_plists(root: Path, launch_dir: Path) -> list[Path]:
     launch_dir.mkdir(parents=True, exist_ok=True)
     (root / ".local" / "logs").mkdir(parents=True, exist_ok=True)
     paths = []
-    for job in launchd_schedule(include_life_sender=include_life_sender):
+    for job in launchd_schedule():
         path = launchd_plist_path(launch_dir, job)
         path.write_bytes(plistlib.dumps(launchd_plist(root, job), sort_keys=False))
         paths.append(path)
     return paths
 
 
-def install_launchd_jobs(root: Path, launch_dir: Path, *, include_life_sender: bool = False) -> list[Path]:
-    paths = write_launchd_plists(root, launch_dir, include_life_sender=include_life_sender)
+def install_launchd_jobs(root: Path, launch_dir: Path) -> list[Path]:
+    paths = write_launchd_plists(root, launch_dir)
     for path in paths:
         subprocess.run(["launchctl", "unload", str(path)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for path in paths:
@@ -95,18 +91,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("action", choices=["write", "install"])
     parser.add_argument("root", type=Path)
     parser.add_argument("--launch-dir", type=Path, default=Path.home() / "Library" / "LaunchAgents")
-    parser.add_argument(
-        "--include-life-sender",
-        action="store_true",
-        help="explicitly include the native life sender during controlled cutover",
-    )
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
     if args.action == "write":
-        paths = write_launchd_plists(root, args.launch_dir, include_life_sender=args.include_life_sender)
+        paths = write_launchd_plists(root, args.launch_dir)
     else:
-        paths = install_launchd_jobs(root, args.launch_dir, include_life_sender=args.include_life_sender)
+        paths = install_launchd_jobs(root, args.launch_dir)
     for path in paths:
         print(f"installed {path}" if args.action == "install" else f"wrote {path}")
     return 0

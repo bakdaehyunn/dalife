@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone as datetime_timezone
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -15,13 +14,16 @@ from dalife.domains.food import (
     FoodCollectionArea,
     FoodCollectionRunner,
     FoodRecommendationContext,
-    build_momuk_history_refresh_plan,
-    import_momuk_history,
     PlaceRanker,
     build_food_collection_plan,
     parse_food_request,
     persist_food_collection_plan,
     recommend_local_food,
+    build_preference_profile,
+    collection_report,
+    evaluate_recommendations,
+    persist_preference_profile,
+    zone_coverage,
 )
 from dalife.domains.life import (
     FIXED_REMINDER_ORDER,
@@ -33,9 +35,7 @@ from dalife.domains.life import (
     deliver_due_life_reminders,
     due_reminders,
     get_fixed_spec,
-    import_honsanam_snapshot,
     kst_datetime,
-    load_honsanam_snapshot,
     load_message_pattern,
     preview_due_life_reminders,
     reminder_details,
@@ -47,10 +47,11 @@ from dalife.domains.life import (
     update_message_pattern,
     validate_stored_reminders,
 )
-from dalife.config import Settings, read_env_values, update_env_values
-from dalife.persistence.momuk_legacy_reader import read_legacy_momuk_recommendations
+from dalife.config import Settings
 from dalife.storage import ArchiveStore
 from dalife.telegram_rooms import read_registered_chat_id
+from dalife.telegram_api import TelegramApiClient
+from dalife.telegram_food import send_due_food_visit_followups
 
 
 def food_cmd(
@@ -60,8 +61,6 @@ def food_cmd(
     action: str,
     area: str,
     aliases: list[str],
-    legacy_areas: list[str],
-    place_limit: int,
     daily_quota_limit: int,
     default_count: int,
     text: str,
@@ -78,9 +77,20 @@ def food_cmd(
     max_queries: int = 20,
     max_quota_cost: int = 20,
     dry_run: bool = False,
-    source_env: Path | None = None,
-    source_root: Path | None = None,
-    overwrite: bool = False,
+    zone_action: str = "",
+    zone_name: str = "",
+    zone_kind: str = "activity",
+    zone_areas: list[str] | None = None,
+    zone_radius_meters: int = 0,
+    walk_minutes: int | None = None,
+    transit_minutes: int | None = None,
+    taxi_minutes: int | None = None,
+    priority: int = 0,
+    days: int = 30,
+    profile_action: str = "",
+    feedback_action: str = "",
+    place_id: str = "",
+    session_id: str = "",
     json_output: bool = False,
 ) -> int:
     if action == "parse":
@@ -130,36 +140,6 @@ def food_cmd(
             print(f"{query.provider}\t{query.facet.value}\t{query.sort_mode}\t{query.query_text}")
         if persist:
             print(f"persisted query_ledger entries={len(entries)}")
-        return 0
-
-    if action == "plan-history-refresh":
-        plan = build_momuk_history_refresh_plan(
-            store,
-            area=area,
-            legacy_areas=tuple(legacy_areas),
-            place_limit=max(0, place_limit),
-        )
-        entries = []
-        if persist:
-            stored_area = store.upsert_area(name=area, normalized_name=area.lower().replace(" ", ""))
-            entries = persist_food_collection_plan(store, plan, area_ids_by_name={area: stored_area["id"]})
-        payload = {
-            "area": area,
-            "legacy_areas": legacy_areas,
-            "place_count": len(plan.queries) // 2,
-            "quota_cost": plan.quota_cost,
-            "queries": [query.__dict__ | {"facet": query.facet.value} for query in plan.queries],
-            "persisted": len(entries),
-        }
-        if json_output:
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-        else:
-            print(
-                f"history refresh area={area} places={payload['place_count']} "
-                f"queries={len(plan.queries)} persisted={len(entries)}"
-            )
-            for query in plan.queries:
-                print(f"{query.provider}\t{query.query_text}")
         return 0
 
     if action == "due-queries":
@@ -218,9 +198,9 @@ def food_cmd(
         return 0 if not any(item.status == "failed" for item in run.items) else 1
 
     if action == "quota":
-        since = datetime.now(datetime_timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
+        local_now = datetime.now(ZoneInfo(settings.life_timezone))
+        local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = local_midnight.astimezone(datetime_timezone.utc).isoformat()
         providers = (
             ("kakao_local", bool(settings.kakao_rest_api_key), settings.kakao_daily_soft_limit),
             (
@@ -236,7 +216,7 @@ def food_cmd(
                 {
                     "provider": provider,
                     "configured": configured,
-                    "date": since[:10],
+                    "date": local_midnight.date().isoformat(),
                     "used": used,
                     "soft_limit": soft_limit,
                     "remaining": max(0, soft_limit - used),
@@ -253,66 +233,93 @@ def food_cmd(
                 )
         return 0
 
-    if action == "import-provider-config":
-        if source_env is None:
-            raise ValueError("source env is required")
-        source = read_env_values(source_env)
-        target_path = settings.root / ".env"
-        target = read_env_values(target_path)
-        mapping = {
-            "KAKAO_REST_API_KEY": "KAKAO_REST_API_KEY",
-            "NAVER_CLIENT_ID": "NAVER_CLIENT_ID",
-            "NAVER_CLIENT_SECRET": "NAVER_CLIENT_SECRET",
-            "NAVER_DAILY_SOFT_LIMIT": "DALIFE_NAVER_DAILY_SOFT_LIMIT",
-            "BLOG_ALLOWED_DOMAINS": "DALIFE_FOOD_BLOG_ALLOWED_DOMAINS",
-        }
-        updates = {
-            target_key: source[source_key]
-            for source_key, target_key in mapping.items()
-            if source.get(source_key) and (overwrite or not target.get(target_key))
-        }
-        if not dry_run and updates:
-            update_env_values(target_path, updates)
-        payload = {
-            "source_env": str(source_env.expanduser().resolve()),
-            "target_env": str(target_path.resolve()),
-            "dry_run": dry_run,
-            "imported_keys": sorted(updates),
-            "missing_source_keys": sorted(
-                target_key for source_key, target_key in mapping.items() if not source.get(source_key)
-            ),
-            "preserved_keys": sorted(
-                target_key
-                for source_key, target_key in mapping.items()
-                if source.get(source_key) and target.get(target_key) and not overwrite
-            ),
-        }
+    if action == "collection-report":
+        payload = collection_report(store, days=max(1, days))
         if json_output:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            mode = "would import" if dry_run else "imported"
-            print(f"{mode} provider config keys: {', '.join(payload['imported_keys']) or 'none'}")
+            print(f"collection report days={payload['days']} runs={payload['runs']}")
+            for item in payload["groups"]:
+                print(
+                    f"{item['area']}\t{item['provider']}\t{item['facet']}\t"
+                    f"runs={item['runs']} utility={item['utility_score']} "
+                    f"novelty={item['novelty_rate']} duplicates={item['duplicate_rate']}"
+                )
         return 0
 
-    if action == "import-momuk-history":
-        if source_root is None:
-            raise ValueError("source root is required")
-        source_db = source_root.expanduser().resolve() / ".local/state/momukbot.sqlite3"
-        report = import_momuk_history(
-            store,
-            read_legacy_momuk_recommendations(source_db),
-            dry_run=dry_run,
-        )
-        payload = asdict(report) | {"source_db": str(source_db)}
+    if action == "zones":
+        if zone_action == "add":
+            zone = store.upsert_mobility_zone(
+                name=zone_name,
+                kind=zone_kind,
+                center_latitude=float(latitude),
+                center_longitude=float(longitude),
+                radius_meters=zone_radius_meters,
+                walk_minutes=walk_minutes,
+                transit_minutes=transit_minutes,
+                taxi_minutes=taxi_minutes,
+                priority=priority,
+            )
+            linked_areas = []
+            for area_name in zone_areas or []:
+                stored_area = store.get_area_by_normalized_name(
+                    normalized_name=area_name.lower().replace(" ", "")
+                )
+                if stored_area:
+                    store.link_mobility_zone_area(zone_id=zone["id"], area_id=stored_area["id"])
+                    linked_areas.append(area_name)
+            payload = record_to_dict(zone) | {"areas": linked_areas}
+        elif zone_action == "disable":
+            payload = {"name": zone_name, "disabled": store.set_mobility_zone_enabled(name=zone_name, enabled=False)}
+        else:
+            zones = store.list_mobility_zones(enabled_only=zone_action != "list")
+            if zone_name:
+                zones = [zone for zone in zones if zone["name"] == zone_name]
+            payload = [
+                record_to_dict(zone) | {"coverage": asdict(zone_coverage(store, zone))}
+                for zone in zones
+            ]
         if json_output:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            mode = "would import" if dry_run else "imported"
-            print(
-                f"{mode} Momuk history rows={report.imported_rows} "
-                f"sessions={report.sessions} candidates={report.candidates} "
-                f"linked_places={report.linked_places} skipped={report.skipped_rows}"
-            )
+            if isinstance(payload, list):
+                for item in payload:
+                    coverage = item["coverage"]
+                    print(
+                        f"{item['name']}\t{item['kind']}\tradius={item['radius_meters']}m\t"
+                        f"inside={coverage['inside_count']} evidence={coverage['evidence_coverage']:.1%}"
+                    )
+            else:
+                print(json.dumps(payload, ensure_ascii=False))
+        return 0
+
+    if action == "profile":
+        if profile_action == "rebuild":
+            snapshot = persist_preference_profile(store)
+            payload = record_to_dict(snapshot)
+            payload["features"] = json.loads(payload.pop("features_json"))
+        else:
+            payload = build_preference_profile(store)
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else json.dumps(payload, ensure_ascii=False))
+        return 0
+
+    if action == "feedback":
+        key = f"cli:{feedback_action}:{place_id}:{datetime.now(datetime_timezone.utc).isoformat()}"
+        row = store.record_user_feedback(
+            feedback_key=key,
+            domain="food",
+            action=feedback_action,
+            place_id=place_id,
+            recommendation_session_id=session_id,
+            payload={"source": "cli"},
+        )
+        payload = record_to_dict(row)
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"recorded {feedback_action} for {place_id}")
+        return 0
+
+    if action == "evaluate":
+        payload = evaluate_recommendations(store, limit=max(1, limit))
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else json.dumps(payload, ensure_ascii=False))
         return 0
 
     if action == "recommend-local":
@@ -400,7 +407,6 @@ def life_cmd(
     date_text: str = "",
     time_text: str = "",
     days: int = 7,
-    source_root: Path | None = None,
     reminder_id: str = "",
     add_kind: str = "",
     title: str | None = None,
@@ -627,12 +633,18 @@ def life_cmd(
     if action == "run-once":
         now = _life_run_time(date_text, time_text, timezone=settings.life_timezone)
         reminders = preview_due_life_reminders(store, now)
+        food_due = store.list_due_food_visit_followups(
+            due_at=now.astimezone(datetime_timezone.utc).isoformat(),
+            limit=20,
+        )
         if dry_run:
             payload = {
                 "dry_run": True,
                 "at": now.isoformat(),
                 "due": len(reminders),
                 "sent": 0,
+                "food_followups_due": len(food_due),
+                "food_followups_sent": 0,
                 "reminders": [
                     {
                         "reminder_id": item.reminder_id,
@@ -658,37 +670,34 @@ def life_cmd(
         if not chat_id:
             print("[FAIL] no registered or uniquely allowed Telegram chat is configured")
             return 1
+        api = api_factory(settings.telegram_bot_token)
         report = deliver_due_life_reminders(
             store,
-            api_factory(settings.telegram_bot_token),
+            api,
             chat_id=chat_id,
             now=now,
         )
-        payload = asdict(report) | {"dry_run": False, "at": now.isoformat()}
+        food_report = send_due_food_visit_followups(
+            store,
+            api,
+            default_chat_id=chat_id,
+            now=now.astimezone(datetime_timezone.utc),
+        )
+        payload = asdict(report) | {
+            "dry_run": False,
+            "at": now.isoformat(),
+            "food_followups_due": food_report["due"],
+            "food_followups_sent": food_report["sent"],
+        }
         if json_output:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             print(
                 f"life reminders due={report.due} sent={report.sent} "
-                f"failed={report.failed} skipped={report.skipped}"
+                f"failed={report.failed} skipped={report.skipped}; "
+                f"food followups due={food_report['due']} sent={food_report['sent']}"
             )
         return 1 if report.failed else 0
-
-    if action == "import-honsanam":
-        if source_root is None:
-            raise ValueError("source root is required")
-        snapshot = load_honsanam_snapshot(source_root)
-        report = import_honsanam_snapshot(store, snapshot, dry_run=dry_run)
-        payload = asdict(report) | {"source_root": str(snapshot.root)}
-        if json_output:
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-            return 0
-        mode = "dry-run" if report.dry_run else "imported"
-        print(
-            f"honsanam {mode} reminders={report.reminders} sent={report.sent_events} "
-            f"interactions={report.interaction_events} confirmations={report.confirmation_events}"
-        )
-        return 0
 
     raise ValueError(f"unsupported life action: {action}")
 

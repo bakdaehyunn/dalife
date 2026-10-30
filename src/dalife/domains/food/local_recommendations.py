@@ -9,14 +9,15 @@ from dalife.domains.food.models import (
     FoodRecommendationContext,
 )
 from dalife.domains.food.ranking import PlaceRanker, RankedFoodPlace
+from dalife.domains.food.learning import build_preference_profile
 from dalife.domains.food.recommendations import persist_food_recommendation_session
-from dalife.models import AreaRecord, UserFeedbackRecord
+from dalife.models import AreaRecord, MobilityZoneRecord, UserFeedbackRecord
 from dalife.ports import PersonalContextRepositoryPort
 
 
 @dataclass(frozen=True)
 class LocalFoodRecommendation:
-    area: AreaRecord | None
+    area: AreaRecord | MobilityZoneRecord | None
     context: FoodRecommendationContext
     ranked_places: tuple[RankedFoodPlace, ...]
     session_id: str = ""
@@ -35,10 +36,16 @@ def recommend_local_food(
     persist_session: bool = True,
 ) -> LocalFoodRecommendation:
     area = store.get_area_by_normalized_name(normalized_name=normalize_area_name(context.area))
-    if area is None:
+    zone = store.get_mobility_zone(name=context.area) if area is None else None
+    if area is None and zone is None:
         return LocalFoodRecommendation(area=None, context=context, ranked_places=())
 
-    place_rows = store.list_places(area_id=area["id"], limit=candidate_limit)
+    place_rows = (
+        store.list_places(area_id=area["id"], limit=candidate_limit)
+        if area is not None
+        else store.list_zone_places(zone_id=zone["id"], limit=candidate_limit)
+    )
+    location = area or zone
     place_ids = [row["id"] for row in place_rows]
     links = store.list_place_evidence(place_ids=place_ids)
     evidence_ids = list(dict.fromkeys(link["evidence_item_id"] for link in links))
@@ -49,21 +56,40 @@ def recommend_local_food(
         if link["evidence_item_id"] in evidence_by_id:
             links_by_place.setdefault(link["place_id"], []).append(link)
 
-    feedback = store.list_user_feedback(domain="food", limit=1000)
+    feedback = store.list_user_feedback(domain="food", limit=10000)
+    profile = build_preference_profile(store)
+    recent_session_rows = store.list_recommendation_sessions(domain="food", limit=10)
+    recently_shown = tuple(
+        candidate["place_id"]
+        for session in recent_session_rows
+        for candidate in store.list_recommendation_candidates(session_id=session["id"])
+        if candidate["place_id"]
+    )
+    hidden_place_ids = {
+        row["place_id"] for row in feedback
+        if row["place_id"] and row["action"] in {"hide", "hidden"}
+    }
     ranked_context = FoodRecommendationContext(
         area=context.area,
         topic=context.topic,
         count=context.count,
         occasion=context.occasion,
-        latitude=context.latitude if context.latitude is not None else area["center_latitude"],
-        longitude=context.longitude if context.longitude is not None else area["center_longitude"],
+        latitude=context.latitude if context.latitude is not None else location["center_latitude"],
+        longitude=context.longitude if context.longitude is not None else location["center_longitude"],
         avoid_terms=context.avoid_terms,
         required_terms=context.required_terms,
         personal_signals={**feedback_signals(feedback), **context.personal_signals},
+        category_preferences={
+            normalize_area_name(key): value
+            for key, value in profile.get("category_scores", {}).items()
+        },
+        recently_shown_place_ids=recently_shown,
+        exploration_ratio=context.exploration_ratio,
     )
     places = [
         _food_place(row, links_by_place.get(row["id"], []), evidence_by_id)
         for row in place_rows
+        if row["id"] not in hidden_place_ids
     ]
     ranked = tuple(PlaceRanker().rank(places, ranked_context))
 
@@ -74,12 +100,12 @@ def recommend_local_food(
             request_text=request_text,
             context=ranked_context,
             ranked_places=list(ranked),
-            area_id=area["id"],
+            area_id=area["id"] if area is not None else "",
             status="completed" if ranked else "no_candidates",
         )
         session_id = session["id"]
     return LocalFoodRecommendation(
-        area=area,
+        area=location,
         context=ranked_context,
         ranked_places=ranked,
         session_id=session_id,

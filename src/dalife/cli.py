@@ -1,26 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
-import os
-from datetime import datetime
-from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from dalife.archive_values import archive_item_to_dict, json_string_list as load_json_list, record_to_dict as row_to_dict
 from dalife.config import DEFAULT_ENV_FILE, ROOT, Settings, ensure_local_dirs, get_settings, load_env
-from dalife.cutover import cutover_report, inspect_launchd
 from dalife.doctor import run_doctor
-from dalife.graph import default_graph_path, export_graph as export_jsonld_graph
-from dalife.insights import generate_insight_note, list_insight_notes, show_insight_note
-from dalife.bot_prompts import (
-    create_post_process_prompt,
-    create_project_seed_digest_prompt,
-    create_revisit_digest_prompt,
-    create_weekly_insight_prompt,
-)
 from dalife.cli_parser import build_parser
 from dalife.cli_commands.setup import init_cmd, setup_cmd_impl
 from dalife.cli_commands.telegram import (
@@ -28,51 +14,24 @@ from dalife.cli_commands.telegram import (
     send_processed_capture_prompts_impl,
     send_test_cmd,
     telegram_commands_cmd,
-    telegram_digest_cmd_impl,
 )
 from dalife.cli_commands.archive import (
-    concepts_cmd,
-    insights_cmd,
-    interests_cmd,
     list_cmd,
-    related_cmd,
-    reprocess_cmd,
-    reprocess_dry_run_cmd,
-    reprocess_plan_cmd,
     review_cmd,
     search_cmd,
     show_cmd,
-    web_cmd,
 )
-from dalife.cli_commands.graph import graph_cmd
 from dalife.cli_commands.personal import course_cmd, food_cmd, life_cmd
 from dalife.cli_formatting import (
     format_classification_preview,
     format_file_status,
-    format_process_and_graph_results,
     format_search_label,
     mask_identifier,
     only_allowed_chat_id,
     print_process_progress,
 )
 from dalife.processor import CaptureProcessor, format_results
-from dalife.readiness import (
-    ISSUE_NAMES,
-    concept_summary,
-    graph_quality_summary,
-    interest_summary,
-    related_captures,
-    reprocess_plan,
-)
 from dalife.search import rebuild_search_index, review_queue, search_archive
-from dalife.semantic_graph import (
-    default_semantic_export_path,
-    default_semantic_store_path,
-    export_semantic_store,
-    init_semantic_store,
-    semantic_store_stats,
-    sync_semantic_store,
-)
 from dalife.scheduler import schedule_summary
 from dalife.storage import ArchiveStore
 from dalife.telegram import (
@@ -86,7 +45,6 @@ from dalife.telegram import (
     read_room_state,
     send_bot_prompt,
 )
-from dalife.web import serve_local_web
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -144,105 +102,8 @@ def main(argv: list[str] | None = None) -> int:
         bot = TelegramCaptureBot(settings, store)
         bot.run_polling(poll_interval_sec=args.poll_interval_sec)
         return 0
-    if args.cmd == "telegram-digest":
-        return telegram_digest_cmd(
-            settings,
-            store,
-            kind=args.kind,
-            limit=args.limit,
-            dry_run=args.dry_run,
-            json_output=args.json,
-        )
-    if args.cmd == "process":
-        processor = CaptureProcessor(settings, store)
-        results = processor.process_pending(
-            limit=args.limit,
-            dry_run=args.dry_run,
-            use_codex=False if args.no_codex else None,
-            progress=None if args.json or args.dry_run else print_process_progress,
-        )
-        semantic_graph_result = None
-        jsonld_graph_result = None
-        if args.export_graph and not args.dry_run and any(item.get("status") == "processed" for item in results):
-            semantic_graph_result = sync_semantic_store(store, default_semantic_store_path(settings.root))
-            jsonld_graph_result = export_jsonld_graph(store, default_graph_path(settings.root))
-        if not args.dry_run:
-            send_processed_capture_prompts(settings, store, results)
-        print(
-            format_process_and_graph_results(
-                results,
-                semantic_graph_result=semantic_graph_result,
-                jsonld_graph_result=jsonld_graph_result,
-                json_output=args.json,
-            )
-        )
-        return 0 if not any(item.get("status") == "failed" for item in results) else 1
-    if args.cmd == "pending":
-        processor = CaptureProcessor(settings, store)
-        results = processor.process_pending(
-            limit=args.limit,
-            dry_run=True,
-            use_codex=False if args.no_codex else None,
-        )
-        print(format_results(results, json_output=args.json))
-        return 0
-    if args.cmd == "reprocess-plan":
-        return reprocess_plan_cmd(
-            store,
-            limit=args.limit,
-            issue=args.issue or "",
-            fallback_only=args.fallback_only,
-            needs_review_only=args.needs_review_only,
-            capture_id=args.capture_id or "",
-            json_output=args.json,
-        )
-    if args.cmd == "reprocess":
-        if args.dry_run:
-            return reprocess_dry_run_cmd(
-                store,
-                limit=args.limit,
-                issue=args.issue or "",
-                fallback_only=args.fallback_only,
-                needs_review_only=args.needs_review_only,
-                capture_id=args.capture_id or "",
-                json_output=args.json,
-            )
-        return reprocess_cmd(
-            settings,
-            store,
-            capture_id=args.capture_id or "",
-            use_codex=False if args.no_codex else None,
-            export_graph=not args.no_export_graph,
-            json_output=args.json,
-        )
-    if args.cmd == "list":
-        return list_cmd(store, limit=args.limit, interest=args.interest or "", json_output=args.json)
-    if args.cmd == "search":
-        return search_cmd(
-            store,
-            query=args.query,
-            limit=args.limit,
-            rebuild=args.rebuild,
-            json_output=args.json,
-        )
-    if args.cmd == "review":
-        return review_cmd(
-            store,
-            limit=args.limit,
-            needs_review_only=args.needs_review,
-            revisit_only=args.revisit,
-            json_output=args.json,
-        )
     if args.cmd == "archive":
         return archive_cmd(settings, store, args)
-    if args.cmd == "web":
-        return web_cmd(store, host=args.host, port=args.port)
-    if args.cmd == "interests":
-        return interests_cmd(store, limit=args.limit, json_output=args.json)
-    if args.cmd == "concepts":
-        return concepts_cmd(store, limit=args.limit, json_output=args.json)
-    if args.cmd == "related":
-        return related_cmd(store, capture_id=args.capture_id, limit=args.limit, json_output=args.json)
     if args.cmd == "food":
         return food_cmd(
             settings,
@@ -250,8 +111,6 @@ def main(argv: list[str] | None = None) -> int:
             action=args.food_cmd,
             area=getattr(args, "area", ""),
             aliases=getattr(args, "alias", []),
-            legacy_areas=getattr(args, "legacy_area", []),
-            place_limit=getattr(args, "place_limit", 20),
             daily_quota_limit=getattr(args, "daily_quota_limit", 30),
             default_count=getattr(args, "default_count", 30),
             text=getattr(args, "text", ""),
@@ -268,9 +127,20 @@ def main(argv: list[str] | None = None) -> int:
             max_queries=getattr(args, "max_queries", 20),
             max_quota_cost=getattr(args, "max_quota_cost", 20),
             dry_run=getattr(args, "dry_run", False),
-            source_env=getattr(args, "source_env", None),
-            source_root=getattr(args, "root", None),
-            overwrite=getattr(args, "overwrite", False),
+            zone_action=getattr(args, "zone_cmd", ""),
+            zone_name=getattr(args, "name", ""),
+            zone_kind=getattr(args, "kind", "activity"),
+            zone_areas=getattr(args, "area", []) if isinstance(getattr(args, "area", ""), list) else [],
+            zone_radius_meters=getattr(args, "radius_meters", 0),
+            walk_minutes=getattr(args, "walk_minutes", None),
+            transit_minutes=getattr(args, "transit_minutes", None),
+            taxi_minutes=getattr(args, "taxi_minutes", None),
+            priority=getattr(args, "priority", 0),
+            days=getattr(args, "days", 30),
+            profile_action=getattr(args, "profile_cmd", ""),
+            feedback_action=getattr(args, "action", ""),
+            place_id=getattr(args, "place_id", ""),
+            session_id=getattr(args, "session_id", ""),
             json_output=args.json,
         )
     if args.cmd == "life":
@@ -281,7 +151,6 @@ def main(argv: list[str] | None = None) -> int:
             date_text=getattr(args, "date", ""),
             time_text=getattr(args, "time", ""),
             days=getattr(args, "days", 7),
-            source_root=getattr(args, "root", None),
             reminder_id=getattr(args, "id", ""),
             add_kind=getattr(args, "life_add_kind", ""),
             title=getattr(args, "title", None),
@@ -316,34 +185,7 @@ def main(argv: list[str] | None = None) -> int:
             json_output=args.json,
         )
     if args.cmd == "schedule":
-        if args.schedule_cmd == "cutover-check":
-            return schedule_cutover_cmd(settings, store, json_output=args.json)
         return schedule_cmd(include_disabled=args.include_disabled, json_output=args.json)
-    if args.cmd == "insights":
-        return insights_cmd(
-            store,
-            action=args.insights_cmd or "list",
-            period=getattr(args, "period", "weekly"),
-            dry_run=getattr(args, "dry_run", False),
-            include_needs_review=getattr(args, "include_needs_review", False),
-            limit=getattr(args, "limit", 20),
-            insight_id=getattr(args, "insight_id", ""),
-            json_output=args.json,
-        )
-    if args.cmd == "show":
-        return show_cmd(store, capture_id=args.capture_id, json_output=args.json)
-    if args.cmd == "graph":
-        return graph_cmd(
-            settings,
-            store,
-            action=args.graph_cmd,
-            output_path=getattr(args, "output", None),
-            stats_path=getattr(args, "path", None),
-            limit=getattr(args, "limit", None),
-            quality_limit=getattr(args, "limit", 20),
-            include_raw_text=getattr(args, "include_raw_text", False),
-            json_output=args.json,
-        )
     return 2
 
 
@@ -365,21 +207,9 @@ def archive_cmd(settings: Settings, store: ArchiveStore, args: Any) -> int:
             use_codex=False if args.no_codex else None,
             progress=None if args.json or args.dry_run else print_process_progress,
         )
-        semantic_graph_result = None
-        jsonld_graph_result = None
-        if args.export_graph and not args.dry_run and any(item.get("status") == "processed" for item in results):
-            semantic_graph_result = sync_semantic_store(store, default_semantic_store_path(settings.root))
-            jsonld_graph_result = export_jsonld_graph(store, default_graph_path(settings.root))
         if not args.dry_run:
             send_processed_capture_prompts(settings, store, results)
-        print(
-            format_process_and_graph_results(
-                results,
-                semantic_graph_result=semantic_graph_result,
-                jsonld_graph_result=jsonld_graph_result,
-                json_output=args.json,
-            )
-        )
+        print(format_results(results, json_output=args.json))
         return 0 if not any(item.get("status") == "failed" for item in results) else 1
     if args.archive_cmd == "list":
         return list_cmd(store, limit=args.limit, interest=args.interest or "", json_output=args.json)
@@ -401,12 +231,6 @@ def archive_cmd(settings: Settings, store: ArchiveStore, args: Any) -> int:
         )
     if args.archive_cmd == "show":
         return show_cmd(store, capture_id=args.capture_id, json_output=args.json)
-    if args.archive_cmd == "interests":
-        return interests_cmd(store, limit=args.limit, json_output=args.json)
-    if args.archive_cmd == "concepts":
-        return concepts_cmd(store, limit=args.limit, json_output=args.json)
-    if args.archive_cmd == "related":
-        return related_cmd(store, capture_id=args.capture_id, limit=args.limit, json_output=args.json)
     return 2
 
 
@@ -421,25 +245,6 @@ def schedule_cmd(*, include_disabled: bool, json_output: bool) -> int:
         print(f"{row['name']}\t{enabled}\t{row['cadence']}\t{command}")
         print(f"  {row['purpose']}")
     return 0
-
-
-def schedule_cutover_cmd(settings: Settings, store: ArchiveStore, *, json_output: bool) -> int:
-    report = cutover_report(
-        settings,
-        store,
-        snapshot=inspect_launchd(),
-        now=datetime.now(ZoneInfo(settings.life_timezone)),
-    )
-    if json_output:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-    else:
-        print("READY" if report["ready"] else "BLOCKED")
-        for check in report["checks"]:
-            status = "PASS" if check["passed"] else "BLOCK"
-            print(f"[{status}] {check['name']}")
-            if check["remediation"]:
-                print(f"  {check['remediation']}")
-    return 0 if report["ready"] else 1
 
 
 def setup_cmd(
@@ -476,26 +281,6 @@ def setup_cmd(
         env_file=DEFAULT_ENV_FILE,
         settings_loader=get_settings,
         doctor=run_doctor,
-    )
-
-
-def telegram_digest_cmd(
-    settings: Settings,
-    store: ArchiveStore,
-    *,
-    kind: str,
-    limit: int,
-    dry_run: bool,
-    json_output: bool,
-) -> int:
-    return telegram_digest_cmd_impl(
-        settings,
-        store,
-        kind=kind,
-        limit=limit,
-        dry_run=dry_run,
-        json_output=json_output,
-        api_factory=TelegramApiClient,
     )
 
 
